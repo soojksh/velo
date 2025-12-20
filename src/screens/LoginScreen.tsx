@@ -25,7 +25,7 @@ export default function LoginScreen({ navigation }: any) {
                 <Text style={styles.logoText}>V</Text>
             </View>
             <Text style={styles.welcomeText}>Welcome Back</Text>
-            <Text style={styles.subText}>Sign in to track your fleet</Text>
+            <Text style={styles.subText}>Sign in to track your vehicle</Text>
         </View>
 
         {/* Inputs */}
@@ -33,7 +33,7 @@ export default function LoginScreen({ navigation }: any) {
             <Text style={styles.label}>Username</Text>
             <TextInput 
                 style={styles.input} 
-                placeholder="e.g. FleetManager" 
+                placeholder="e.g. Admin" 
                 placeholderTextColor={COLORS.textSecondary}
                 value={username}
                 onChangeText={setUsername}
@@ -55,7 +55,7 @@ export default function LoginScreen({ navigation }: any) {
                 onPress={handleLogin}
                 activeOpacity={0.8}
             >
-                <Text style={styles.loginButtonText}>Login Securely</Text>
+                <Text style={styles.loginButtonText}>Login</Text>
             </TouchableOpacity>
         </View>
 
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     marginTop: 10,
-    ...SHADOWS.medium, // Apply blue shadow
+    ...SHADOWS.small, 
   },
   loginButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
 });

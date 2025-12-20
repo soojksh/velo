@@ -42,7 +42,7 @@ function App(): React.JSX.Element {
             name="Vehicles" 
             component={VehicleListScreen} 
             options={{ 
-                title: 'Live Fleet',
+                title: 'Live Vehicles',
                 headerBackVisible: false 
             }} 
           />

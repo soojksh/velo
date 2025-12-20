@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, Animated, StatusBar } from 'react-native';
 import { COLORS } from '../config/theme';
 
 export default function SplashScreen({ navigation }: any) {
-  // 1. FIX: Use 'useRef' to ensure these values stay stable across re-renders
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.8)).current;
 
@@ -29,7 +28,6 @@ export default function SplashScreen({ navigation }: any) {
 
     return () => clearTimeout(timer);
     
-    // 4. FIX: Add the dependencies here to satisfy the linter
   }, [fadeAnim, scaleAnim, navigation]);
 
   return (
@@ -46,7 +44,7 @@ export default function SplashScreen({ navigation }: any) {
             <Text style={styles.iconText}>V</Text>
         </View>
         <Text style={styles.appName}>Velo</Text>
-        <Text style={styles.tagline}>Fleet Tracking Evolved</Text>
+        <Text style={styles.tagline}>Vehicle Tracking Evolved</Text>
       </Animated.View>
 
       <View style={styles.footer}>
