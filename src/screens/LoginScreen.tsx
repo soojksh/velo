@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import ScreenContainer from '../components/ScreenContainer';
+import { COLORS, SHADOWS } from '../config/theme';
 
 export default function LoginScreen({ navigation }: any) {
   const [username, setUsername] = useState('');
@@ -10,97 +11,91 @@ export default function LoginScreen({ navigation }: any) {
     if (username.length > 0 && password.length > 0) {
         navigation.replace('Vehicles'); 
     } else {
-        Alert.alert('Error', 'Please enter any username and password');
+        Alert.alert('Details Required', 'Please enter your username and password.');
     }
   };
 
   return (
     <ScreenContainer>
-      <View style={styles.content}>
-        <Text style={styles.header}>Velo Tracker</Text>
-        <Text style={styles.subHeader}>Enter your credentials to continue</Text>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.content}>
+        
+        {/* Logo / Header Area */}
+        <View style={styles.headerContainer}>
+            <View style={styles.logoCircle}>
+                <Text style={styles.logoText}>V</Text>
+            </View>
+            <Text style={styles.welcomeText}>Welcome Back</Text>
+            <Text style={styles.subText}>Sign in to track your fleet</Text>
+        </View>
 
-        <View style={styles.inputContainer}>
+        {/* Inputs */}
+        <View style={styles.form}>
             <Text style={styles.label}>Username</Text>
             <TextInput 
                 style={styles.input} 
-                placeholder="admin" 
+                placeholder="e.g. FleetManager" 
+                placeholderTextColor={COLORS.textSecondary}
                 value={username}
                 onChangeText={setUsername}
                 autoCapitalize="none"
             />
-        </View>
 
-        <View style={styles.inputContainer}>
             <Text style={styles.label}>Password</Text>
             <TextInput 
                 style={styles.input} 
-                placeholder="••••••" 
+                placeholder="••••••••" 
+                placeholderTextColor={COLORS.textSecondary}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry
             />
+
+            <TouchableOpacity 
+                style={styles.loginButton} 
+                onPress={handleLogin}
+                activeOpacity={0.8}
+            >
+                <Text style={styles.loginButtonText}>Login Securely</Text>
+            </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.button} onPress={handleLogin}>
-            <Text style={styles.buttonText}>Login</Text>
-        </TouchableOpacity>
-      </View>
+      </KeyboardAvoidingView>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  header: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  subHeader: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-  inputContainer: {
+  content: { flex: 1, justifyContent: 'center' },
+  headerContainer: { alignItems: 'center', marginBottom: 40 },
+  logoCircle: {
+    width: 80, height: 80, borderRadius: 40,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: 'center', justifyContent: 'center',
     marginBottom: 20,
   },
-  label: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 8,
-    fontWeight: '600',
-  },
+  logoText: { fontSize: 40, fontWeight: 'bold', color: COLORS.primary },
+  welcomeText: { fontSize: 28, fontWeight: 'bold', color: COLORS.textPrimary },
+  subText: { fontSize: 16, color: COLORS.textSecondary, marginTop: 5 },
+  
+  form: { width: '100%' },
+  label: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary, marginBottom: 8, marginLeft: 4 },
   input: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-  },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 16,
+    backgroundColor: COLORS.card,
     borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 20,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  buttonText: {
-    color: 'white',
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     fontSize: 16,
-    fontWeight: 'bold',
+    color: COLORS.textPrimary,
   },
+  loginButton: {
+    backgroundColor: COLORS.primary,
+    paddingVertical: 18,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginTop: 10,
+    ...SHADOWS.medium, // Apply blue shadow
+  },
+  loginButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
 });
