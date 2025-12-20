@@ -7,29 +7,26 @@ export default function LiveMapScreen({ route }: any) {
     const { vehicleId } = route.params || {};
     const { vehicles } = useVehicles();
     
-    // 1. Create a reference to control the map programmatically
     const mapRef = useRef<MapView>(null);
 
     const targetVehicle = vehicleId ? vehicles[vehicleId] : null;
     const allVehicles = Object.values(vehicles);
 
-    // 2. Use 'targetVehicle' to animate the camera
-    // This fixes the "unused variable" warning AND improves UX
     useEffect(() => {
         if (targetVehicle && mapRef.current) {
             mapRef.current.animateToRegion({
                 latitude: targetVehicle.latitude,
                 longitude: targetVehicle.longitude,
-                latitudeDelta: 0.02, // Zoom level (smaller = closer)
+                latitudeDelta: 0.02, 
                 longitudeDelta: 0.02,
-            }, 1000); // Animation duration in ms
+            }, 1000); 
         }
-    }, [targetVehicle]); // Re-run if the vehicle moves or updates
+    }, [targetVehicle]); 
 
     return (
         <View style={styles.container}>
             <MapView
-                ref={mapRef} // 3. Connect the ref here
+                ref={mapRef} 
                 style={styles.map}
                 initialRegion={{
                     latitude: 60.1699, 
@@ -44,7 +41,6 @@ export default function LiveMapScreen({ route }: any) {
                         coordinate={{ latitude: v.latitude, longitude: v.longitude }}
                         title={`Vehicle ${v.id}`}
                         description={v.timestamp ? `Updated: ${v.timestamp}` : ''}
-                        // Highlight the selected vehicle in blue, others in red
                         pinColor={v.id === vehicleId ? 'blue' : 'red'}
                     />
                 ))}

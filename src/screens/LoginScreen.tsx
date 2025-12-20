@@ -7,10 +7,7 @@ export default function LoginScreen({ navigation }: any) {
   const [password, setPassword] = useState('');
 
   const handleLogin = () => {
-    // simple validation: just check if fields are not empty
     if (username.length > 0 && password.length > 0) {
-        // Navigate to the main app flow
-        // "replace" prevents the user from going back to login by pressing back
         navigation.replace('Vehicles'); 
     } else {
         Alert.alert('Error', 'Please enter any username and password');

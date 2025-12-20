@@ -12,7 +12,7 @@ interface VehicleData {
 }
 
 interface VehicleContextType {
-  vehicles: Record<string, VehicleData>; // Map vehicleID to Data
+  vehicles: Record<string, VehicleData>;
   isConnected: boolean;
   connectionError: string | null;
 }
@@ -88,7 +88,7 @@ export const VehicleProvider = ({ children }: { children: React.ReactNode }) => 
       }
     };
   }, []);
-
+ 
   return (
     <VehicleContext.Provider value={{ vehicles, isConnected, connectionError }}>
       {children}

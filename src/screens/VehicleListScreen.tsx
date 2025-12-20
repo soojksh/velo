@@ -13,7 +13,6 @@ export default function VehicleListScreen({ navigation }: any) {
         <View style={styles.headerContainer}>
             <Text style={styles.title}>Fleet Status</Text>
             
-            {/* We use an array to apply conditional styles cleanly */}
             <Text style={[styles.statusBase, isConnected ? styles.connected : styles.disconnected]}>
                 {isConnected ? '● Connected to AWS IoT' : '● Disconnected'}
             </Text>
@@ -40,7 +39,6 @@ export default function VehicleListScreen({ navigation }: any) {
   );
 }
 
-// Define all styles here once, outside the render loop
 const styles = StyleSheet.create({
     headerContainer: {
         marginBottom: 15,
