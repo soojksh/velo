@@ -4,9 +4,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { VehicleProvider } from './src/context/VehicleContext';
 
 // Import Screens
+import SplashScreen from './src/screens/SplashScreen'; // <--- Import this
 import LoginScreen from './src/screens/LoginScreen';
 import VehicleListScreen from './src/screens/VehicleListScreen';
 import LiveMapScreen from './src/screens/LiveMapScreen';
+import { COLORS } from './src/config/theme';
 
 const Stack = createNativeStackNavigator();
 
@@ -14,16 +16,28 @@ function App(): React.JSX.Element {
   return (
     <VehicleProvider>
       <NavigationContainer>
-        <Stack.Navigator initialRouteName="Login">
+        <Stack.Navigator 
+          initialRouteName="Splash" 
+          screenOptions={{
+            headerStyle: { backgroundColor: COLORS.background },
+            headerTitleStyle: { fontWeight: 'bold', color: COLORS.textPrimary },
+            headerShadowVisible: false, 
+            headerTintColor: COLORS.primary, 
+          }}
+        >
           
-          {/* 1. Login Screen (Header Hidden) */}
+          <Stack.Screen 
+            name="Splash" 
+            component={SplashScreen} 
+            options={{ headerShown: false }} 
+          />
+
           <Stack.Screen 
             name="Login" 
             component={LoginScreen} 
             options={{ headerShown: false }} 
           />
 
-          {/* 2. Main List Screen (Left arrow hidden so they can't go back to login) */}
           <Stack.Screen 
             name="Vehicles" 
             component={VehicleListScreen} 
@@ -33,7 +47,6 @@ function App(): React.JSX.Element {
             }} 
           />
 
-          {/* 3. Map Detail Screen */}
           <Stack.Screen 
             name="LiveMap" 
             component={LiveMapScreen} 
