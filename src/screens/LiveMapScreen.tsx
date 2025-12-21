@@ -9,6 +9,7 @@ import {
   Dimensions,
   StatusBar,
   ActivityIndicator,
+  BackHandler, // <--- 1. Import BackHandler
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,70 +31,104 @@ export default function LiveMapScreen({ route, navigation }: any) {
   const currentValue = useRef(0);
   const lastPosition = useRef(0);
 
-  const [address, setAddress] = useState<string>('Locating...');
-  const [isFetchingAddress, setIsFetchingAddress] = useState(false);
+  // Address State
+  const [address, setAddress] = useState<string>('Locating address...');
+  
+  // Refs for throttling
+  const lastFetchCoords = useRef<{lat: number, lng: number} | null>(null);
+  const lastFetchTime = useRef<number>(0);
 
-  // Filter: Only show the target vehicle
   const targetVehicle = vehicleId ? vehicles[vehicleId] : null;
   const displayedVehicles = useMemo(() => {
     return targetVehicle ? [targetVehicle] : [];
   }, [targetVehicle]);
 
-  // Remove Header
+  // Remove Default Header
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
+
+  // --- 2. SYSTEM BACK BUTTON HANDLER ---
+  useEffect(() => {
+    const onBackPress = () => {
+      // Logic: If user presses system back, go back to previous screen (Vehicle List)
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+        return true; // Tell system "We handled this event, don't close the app"
+      }
+      return false; // Let system handle it (e.g. exit app if no screens left)
+    };
+
+    // Add Listener
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      onBackPress
+    );
+
+    // Cleanup on unmount
+    return () => subscription.remove();
+  }, [navigation]);
+
 
   // --- ADDRESS FETCHING LOGIC ---
   useEffect(() => {
     if (!targetVehicle) return;
 
-    let isMounted = true;
+    const lat = targetVehicle.latitude;
+    const lng = targetVehicle.longitude;
+    const now = Date.now();
 
+    if (lastFetchCoords.current) {
+        const diffLat = Math.abs(lastFetchCoords.current.lat - lat);
+        const diffLng = Math.abs(lastFetchCoords.current.lng - lng);
+        if (diffLat < 0.0002 && diffLng < 0.0002) {
+            return; 
+        }
+    }
+
+    if (now - lastFetchTime.current < 3000) {
+        return;
+    }
+
+    let isMounted = true;
     const fetchAddress = async () => {
-        if (!isMounted) return;
-        setIsFetchingAddress(true);
-        
         try {
+            lastFetchTime.current = Date.now();
+            lastFetchCoords.current = { lat, lng };
+
             const response = await fetch(
-                `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${targetVehicle.latitude}&lon=${targetVehicle.longitude}`,
+                `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=en`,
                 { 
-                    headers: { 
-                        'User-Agent': 'VeloTracker/1.0 (nepal_project_dev)' 
-                    } 
+                    headers: { 'User-Agent': 'VeloTrackerApp/1.0' } 
                 }
             );
             
-            if (!response.ok) throw new Error('Network response was not ok');
-            
+            if (!response.ok) return;
+
             const data = await response.json();
             
             if (isMounted && data.address) {
-                const street = data.address.road || data.address.pedestrian || '';
-                const area = data.address.suburb || data.address.neighbourhood || data.address.village || data.address.hamlet || '';
-                const city = data.address.city || data.address.town || data.address.municipality || data.address.county || '';
-                
-                const formatted = [street, area, city].filter(Boolean).join(', ');
-                setAddress(formatted || data.display_name.split(',')[0]);
-            } else if (isMounted) {
-                setAddress('Address details not found');
+                const specific = data.address.hamlet || data.address.pedestrian || data.address.road || '';
+                const general = data.address.village || data.address.municipality || data.address.town || data.address.city || '';
+                const district = data.address.county || data.address.district || '';
+
+                let fullAddr = [specific, general, district].filter(Boolean).join(', ');
+
+                if (fullAddr.length < 5) {
+                    fullAddr = data.display_name.split(',').slice(0, 3).join(',');
+                }
+
+                setAddress(fullAddr);
             }
-        } catch (error) { 
-            console.log("Geocoding Error:", error);
-            if (isMounted) setAddress('Location unavailable');
-        } finally {
-            if (isMounted) setIsFetchingAddress(false);
+        } catch {
+             // Silent fail
         }
     };
 
-    // Debounce to prevent API spamming
-    const timer = setTimeout(fetchAddress, 500);
+    fetchAddress();
 
-    return () => {
-        isMounted = false;
-        clearTimeout(timer);
-    };
-  }, [targetVehicle]); // Dependencies fixed
+    return () => { isMounted = false; };
+  }, [targetVehicle]); 
 
   // Animation Listener
   useEffect(() => {
@@ -122,22 +157,13 @@ export default function LiveMapScreen({ route, navigation }: any) {
         animatedValue.flattenOffset();
         const progress = currentValue.current;
         let toValue = 0; 
-
-        if ((lastPosition.current === 0 && progress > 0.2) || (gestureState.vy < -0.5)) {
-            toValue = 1; 
-        } else if ((lastPosition.current === 1 && progress < 0.8) || (gestureState.vy > 0.5)) {
-            toValue = 0; 
-        } else {
-            toValue = lastPosition.current; 
-        }
+        if ((lastPosition.current === 0 && progress > 0.2) || (gestureState.vy < -0.5)) toValue = 1;
+        else if ((lastPosition.current === 1 && progress < 0.8) || (gestureState.vy > 0.5)) toValue = 0;
+        else toValue = lastPosition.current;
 
         Animated.spring(animatedValue, {
-            toValue,
-            friction: 6,
-            tension: 50,
-            useNativeDriver: false,
+            toValue, friction: 6, tension: 50, useNativeDriver: false,
         }).start();
-
         lastPosition.current = toValue;
       },
     })
@@ -232,12 +258,13 @@ export default function LiveMapScreen({ route, navigation }: any) {
         }}
       />
 
-      <TouchableOpacity 
+      {/* Custom Back Button (Still useful for UI, but now Hardware Back works too) */}
+      {/* <TouchableOpacity 
         style={[styles.backButton, { top: insets.top + 10 }]} 
         onPress={() => navigation.goBack()}
       >
         <Text style={styles.backButtonText}>←</Text>
-      </TouchableOpacity>
+      </TouchableOpacity> */}
 
       <Animated.View style={[styles.bottomSheet, bottomSheetStyle]}>
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
@@ -250,9 +277,12 @@ export default function LiveMapScreen({ route, navigation }: any) {
                     <View style={styles.sheetHeader}>
                         <View style={styles.textContainer}>
                             <Text style={styles.vehicleTitle}>{targetVehicle.id}</Text>
-                            <Text style={styles.addressText} numberOfLines={2}>
-                                {isFetchingAddress ? 'Updating location...' : address}
-                            </Text>
+                            <View style={styles.addressRow}>
+                                <Text style={styles.pinIcon}>📍</Text>
+                                <Text style={styles.addressText} numberOfLines={2}>
+                                    {address}
+                                </Text>
+                            </View>
                         </View>
                         <View style={styles.speedBadge}>
                             <Text style={styles.speedValue}>{targetVehicle.speed || 0}</Text>
@@ -265,16 +295,16 @@ export default function LiveMapScreen({ route, navigation }: any) {
                     <View style={styles.detailsGrid}>
                         <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>LATITUDE</Text>
-                            <Text style={styles.detailValue}>{targetVehicle.latitude.toFixed(6)}</Text>
+                            <Text style={styles.detailValue}>{targetVehicle.latitude.toFixed(5)}</Text>
                         </View>
                         <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>LONGITUDE</Text>
-                            <Text style={styles.detailValue}>{targetVehicle.longitude.toFixed(6)}</Text>
+                            <Text style={styles.detailValue}>{targetVehicle.longitude.toFixed(5)}</Text>
                         </View>
                         <View style={styles.detailItem}>
                             <Text style={styles.detailLabel}>LAST UPDATE</Text>
                             <Text style={styles.detailValue}>
-                                {new Date(targetVehicle.timestamp).toLocaleTimeString()}
+                                {new Date(targetVehicle.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}
                             </Text>
                         </View>
                         <View style={styles.detailItem}>
@@ -285,10 +315,8 @@ export default function LiveMapScreen({ route, navigation }: any) {
                 </>
             ) : (
                 <View style={styles.centerContent}>
-                    <Text style={styles.placeholderText}>Vehicle not found</Text>
-                    {displayedVehicles.length === 0 && (
-                         <ActivityIndicator size="small" color={COLORS.primary} style={styles.spinner} />
-                    )}
+                    <Text style={styles.placeholderText}>Connecting to vehicle...</Text>
+                    <ActivityIndicator size="small" color={COLORS.primary} style={styles.spinner} />
                 </View>
             )}
         </View>
@@ -315,10 +343,10 @@ const styles = StyleSheet.create({
     ...SHADOWS.medium, elevation: 20, overflow: 'hidden',
   },
   dragHandleArea: {
-    height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: 'white',
+    height: 35, alignItems: 'center', justifyContent: 'center', backgroundColor: 'white',
   },
   dragHandle: {
-    width: 40, height: 5, backgroundColor: '#E0E0E0', borderRadius: 3,
+    width: 40, height: 4, backgroundColor: '#E0E0E0', borderRadius: 2,
   },
   sheetContent: {
     flex: 1, paddingHorizontal: 24, paddingBottom: 20,
@@ -330,8 +358,11 @@ const styles = StyleSheet.create({
   textContainer: {
     flex: 1, paddingRight: 10,
   },
-  vehicleTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.textPrimary },
-  addressText: { fontSize: 13, color: COLORS.textSecondary, marginTop: 4, lineHeight: 18 },
+  vehicleTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.textPrimary, marginBottom: 4 },
+  
+  addressRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  pinIcon: { fontSize: 12, marginRight: 4, marginTop: 2 },
+  addressText: { fontSize: 13, color: COLORS.textSecondary, lineHeight: 18, flex: 1 },
   
   speedBadge: {
     alignItems: 'center', justifyContent: 'center',
