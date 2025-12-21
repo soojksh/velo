@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { VehicleProvider } from './src/context/VehicleContext';
 
 // Import Screens
-import SplashScreen from './src/screens/SplashScreen'; // <--- Import this
+import SplashScreen from './src/screens/SplashScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import VehicleListScreen from './src/screens/VehicleListScreen';
 import LiveMapScreen from './src/screens/LiveMapScreen';
@@ -23,6 +23,7 @@ function App(): React.JSX.Element {
             headerTitleStyle: { fontWeight: 'bold', color: COLORS.textPrimary },
             headerShadowVisible: false, 
             headerTintColor: COLORS.primary, 
+            contentStyle: { backgroundColor: COLORS.background },
           }}
         >
           
@@ -42,15 +43,18 @@ function App(): React.JSX.Element {
             name="Vehicles" 
             component={VehicleListScreen} 
             options={{ 
-                title: 'Live Vehicles',
-                headerBackVisible: false 
+                headerShown: false 
             }} 
           />
 
           <Stack.Screen 
             name="LiveMap" 
             component={LiveMapScreen} 
-            options={{ title: 'Vehicle Location' }}
+            options={{ 
+                title: 'Tracking', 
+                // FIX: Use 'headerBackTitle' instead of 'headerBackTitleVisible'
+                headerBackTitle: '', // This removes the text next to the back arrow on iOS
+            }}
           />
 
         </Stack.Navigator>

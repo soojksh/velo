@@ -2,6 +2,11 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import mqtt, { MqttClient } from 'mqtt';
 import { signUrl } from '../utils/aws-sigv4';
 import { AWS_CONFIG } from '../config/aws-config';
+import { getNextDemoPositions } from '../utils/demo-data'; // <--- Import the demo logic
+
+// THE MAGIC TOGGLE ---
+const USE_DEMO_MODE = true; // Set to FALSE when you are ready for real data
+// ---------------------------
 
 interface VehicleData {
   id: string;
@@ -26,69 +31,79 @@ export const VehicleProvider = ({ children }: { children: React.ReactNode }) => 
   const clientRef = useRef<MqttClient | null>(null);
 
   useEffect(() => {
-    const url = signUrl({
-      host: AWS_CONFIG.IOT_ENDPOINT,
-      region: AWS_CONFIG.REGION,
-      accessKey: AWS_CONFIG.ACCESS_KEY_ID,
-      secretKey: AWS_CONFIG.SECRET_ACCESS_KEY,
-    });
 
-    console.log("Connecting to:", url);
+    if (USE_DEMO_MODE) {
+      console.log("STARTING IN DEMO MODE");
+      setIsConnected(true); 
 
-    const client = mqtt.connect(url, {
-      protocol: 'wss',
-      clientId: 'VeloApp-' + Math.random().toString(16).substr(2, 8),
-      reconnectPeriod: 2000,
-    });
+      const intervalId = setInterval(() => {
+        const demoData = getNextDemoPositions();
+        
+        setVehicles(prev => {
+          const nextState = { ...prev };
+          demoData.forEach(v => {
+            nextState[v.id] = v;
+          });
+          return nextState;
+        });
+      }, 1000); 
 
-    clientRef.current = client;
-
-    client.on('connect', () => {
-      console.log('Connected to AWS IoT Core');
-      setIsConnected(true);
-      setConnectionError(null);
-      
-      client.subscribe(AWS_CONFIG.TOPIC_ALL, (err) => {
-        if (!err) console.log(`Subscribed to ${AWS_CONFIG.TOPIC_ALL}`);
+      return () => clearInterval(intervalId);
+    } 
+    
+   
+    else {
+      const url = signUrl({
+        host: AWS_CONFIG.IOT_ENDPOINT,
+        region: AWS_CONFIG.REGION,
+        accessKey: AWS_CONFIG.ACCESS_KEY_ID,
+        secretKey: AWS_CONFIG.SECRET_ACCESS_KEY,
       });
-    });
 
-    client.on('error', (err) => {
-      console.error('MQTT Error:', err);
-      setConnectionError(err.message);
-      setIsConnected(false);
-    });
+      console.log("Connecting to AWS...");
 
-    client.on('offline', () => {
-      console.log('MQTT Offline');
-      setIsConnected(false);
-    });
+      const client = mqtt.connect(url, {
+        protocol: 'wss',
+        clientId: 'VeloApp-' + Math.random().toString(16).substr(2, 8),
+        reconnectPeriod: 2000,
+      });
 
-    client.on('message', (topic, message) => {
-      try {
-        const payload = JSON.parse(message.toString());
-        const topicParts = topic.split('/');
-        const vehicleId = topicParts[1]; 
+      clientRef.current = client;
 
-        setVehicles((prev) => ({
-          ...prev,
-          [vehicleId]: { 
-            id: vehicleId, 
-            ...payload 
-          },
-        }));
-      } catch (e) {
-        console.error("Failed to parse message", e);
-      }
-    });
+      client.on('connect', () => {
+        console.log('Connected to AWS IoT Core');
+        setIsConnected(true);
+        setConnectionError(null);
+        client.subscribe(AWS_CONFIG.TOPIC_ALL);
+      });
 
-    return () => {
-      if (clientRef.current) {
-        clientRef.current.end();
-      }
-    };
+      client.on('error', (err) => {
+        console.error('MQTT Error:', err);
+        setConnectionError(err.message);
+        setIsConnected(false);
+      });
+
+      client.on('message', (topic, message) => {
+        try {
+          const payload = JSON.parse(message.toString());
+          const topicParts = topic.split('/');
+          const vehicleId = topicParts[1]; 
+
+          setVehicles((prev) => ({
+            ...prev,
+            [vehicleId]: { id: vehicleId, ...payload },
+          }));
+        } catch (e) {
+          console.error("Failed to parse message", e);
+        }
+      });
+
+      return () => {
+        if (clientRef.current) clientRef.current.end();
+      };
+    }
   }, []);
- 
+
   return (
     <VehicleContext.Provider value={{ vehicles, isConnected, connectionError }}>
       {children}
