@@ -2,11 +2,11 @@ import React, { createContext, useContext, useEffect, useState, useRef } from 'r
 import mqtt, { MqttClient } from 'mqtt';
 import { signUrl } from '../utils/aws-sigv4';
 import { AWS_CONFIG } from '../config/aws-config';
-import { getNextDemoPositions } from '../utils/demo-data'; // <--- Import the demo logic
+import { getNextDemoPositions } from '../utils/demo-data'; 
 
-// THE MAGIC TOGGLE ---
-const USE_DEMO_MODE = true; // Set to FALSE when you are ready for real data
-// ---------------------------
+// --- CONFIGURATION ---
+const USE_DEMO_MODE = true; // Set to FALSE for Real AWS Data
+// ---------------------
 
 interface VehicleData {
   id: string;
@@ -31,9 +31,12 @@ export const VehicleProvider = ({ children }: { children: React.ReactNode }) => 
   const clientRef = useRef<MqttClient | null>(null);
 
   useEffect(() => {
-
+    // 1. SAFETY: Clear any existing data when the app starts/reloads
+    setVehicles({}); 
+    
+    // === DEMO MODE ===
     if (USE_DEMO_MODE) {
-      console.log("STARTING IN DEMO MODE");
+      console.log("⚠️ STARTING IN DEMO MODE");
       setIsConnected(true); 
 
       const intervalId = setInterval(() => {
@@ -51,16 +54,16 @@ export const VehicleProvider = ({ children }: { children: React.ReactNode }) => 
       return () => clearInterval(intervalId);
     } 
     
-   
+    // === REAL AWS MODE ===
     else {
+      console.log("🔌 Connecting to AWS IoT...");
+      
       const url = signUrl({
         host: AWS_CONFIG.IOT_ENDPOINT,
         region: AWS_CONFIG.REGION,
         accessKey: AWS_CONFIG.ACCESS_KEY_ID,
         secretKey: AWS_CONFIG.SECRET_ACCESS_KEY,
       });
-
-      console.log("Connecting to AWS...");
 
       const client = mqtt.connect(url, {
         protocol: 'wss',
@@ -71,14 +74,14 @@ export const VehicleProvider = ({ children }: { children: React.ReactNode }) => 
       clientRef.current = client;
 
       client.on('connect', () => {
-        console.log('Connected to AWS IoT Core');
+        console.log('✅ Connected to AWS IoT Core');
         setIsConnected(true);
         setConnectionError(null);
         client.subscribe(AWS_CONFIG.TOPIC_ALL);
       });
 
       client.on('error', (err) => {
-        console.error('MQTT Error:', err);
+        console.error('❌ MQTT Error:', err);
         setConnectionError(err.message);
         setIsConnected(false);
       });
@@ -86,13 +89,16 @@ export const VehicleProvider = ({ children }: { children: React.ReactNode }) => 
       client.on('message', (topic, message) => {
         try {
           const payload = JSON.parse(message.toString());
+          // Assuming topic format: "something/VEHICLE_ID/data"
           const topicParts = topic.split('/');
           const vehicleId = topicParts[1]; 
 
-          setVehicles((prev) => ({
-            ...prev,
-            [vehicleId]: { id: vehicleId, ...payload },
-          }));
+          if (vehicleId) {
+            setVehicles((prev) => ({
+                ...prev,
+                [vehicleId]: { id: vehicleId, ...payload },
+            }));
+          }
         } catch (e) {
           console.error("Failed to parse message", e);
         }

@@ -1,22 +1,24 @@
-import React, { useEffect, useRef, useMemo, useLayoutEffect } from 'react';
+import React, { useEffect, useRef, useMemo, useLayoutEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
-  ActivityIndicator,
   Text,
   TouchableOpacity,
   Animated,
   PanResponder,
+  Dimensions,
   StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useVehicles } from '../context/VehicleContext';
 import { COLORS, SHADOWS } from '../config/theme';
 
-const SHEET_MAX_HEIGHT = 320; // Expanded height
-const SHEET_MIN_HEIGHT = 110; // Collapsed height
-const DRAG_THRESHOLD = 50;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.55; 
+const SHEET_MIN_HEIGHT = 120;
+const SHEET_RANGE = SHEET_MAX_HEIGHT - SHEET_MIN_HEIGHT;
 
 export default function LiveMapScreen({ route, navigation }: any) {
   const { vehicleId } = route.params || {};
@@ -25,51 +27,118 @@ export default function LiveMapScreen({ route, navigation }: any) {
   
   const webViewRef = useRef<WebView>(null);
   const animatedValue = useRef(new Animated.Value(0)).current; 
-  const lastGestureDy = useRef(0);
+  const currentValue = useRef(0);
+  const lastPosition = useRef(0);
 
-  // Data
-  const allVehicles = useMemo(() => Object.values(vehicles), [vehicles]);
+  const [address, setAddress] = useState<string>('Locating...');
+  const [isFetchingAddress, setIsFetchingAddress] = useState(false);
+
+  // Filter: Only show the target vehicle
   const targetVehicle = vehicleId ? vehicles[vehicleId] : null;
+  const displayedVehicles = useMemo(() => {
+    return targetVehicle ? [targetVehicle] : [];
+  }, [targetVehicle]);
 
+  // Remove Header
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
 
+  // --- ADDRESS FETCHING LOGIC ---
+  useEffect(() => {
+    if (!targetVehicle) return;
+
+    let isMounted = true;
+
+    const fetchAddress = async () => {
+        if (!isMounted) return;
+        setIsFetchingAddress(true);
+        
+        try {
+            const response = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${targetVehicle.latitude}&lon=${targetVehicle.longitude}`,
+                { 
+                    headers: { 
+                        'User-Agent': 'VeloTracker/1.0 (nepal_project_dev)' 
+                    } 
+                }
+            );
+            
+            if (!response.ok) throw new Error('Network response was not ok');
+            
+            const data = await response.json();
+            
+            if (isMounted && data.address) {
+                const street = data.address.road || data.address.pedestrian || '';
+                const area = data.address.suburb || data.address.neighbourhood || data.address.village || data.address.hamlet || '';
+                const city = data.address.city || data.address.town || data.address.municipality || data.address.county || '';
+                
+                const formatted = [street, area, city].filter(Boolean).join(', ');
+                setAddress(formatted || data.display_name.split(',')[0]);
+            } else if (isMounted) {
+                setAddress('Address details not found');
+            }
+        } catch (error) { 
+            console.log("Geocoding Error:", error);
+            if (isMounted) setAddress('Location unavailable');
+        } finally {
+            if (isMounted) setIsFetchingAddress(false);
+        }
+    };
+
+    // Debounce to prevent API spamming
+    const timer = setTimeout(fetchAddress, 500);
+
+    return () => {
+        isMounted = false;
+        clearTimeout(timer);
+    };
+  }, [targetVehicle]); // Dependencies fixed
+
+  // Animation Listener
+  useEffect(() => {
+    const id = animatedValue.addListener(({ value }) => {
+      currentValue.current = value;
+    });
+    return () => {
+      animatedValue.removeListener(id);
+    };
+  }, [animatedValue]);
+
+  // Pan Responder
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        animatedValue.setOffset(lastGestureDy.current);
+        animatedValue.setOffset(currentValue.current);
         animatedValue.setValue(0);
       },
       onPanResponderMove: (_, gestureState) => {
-        if (gestureState.dy < 0 && lastGestureDy.current === 0) {
-             animatedValue.setValue(gestureState.dy / - (SHEET_MAX_HEIGHT - SHEET_MIN_HEIGHT));
-        } else if (gestureState.dy > 0 && lastGestureDy.current === 1) {
-             animatedValue.setValue(1 - (gestureState.dy / (SHEET_MAX_HEIGHT - SHEET_MIN_HEIGHT)));
-        }
+        const progressDelta = -(gestureState.dy / SHEET_RANGE);
+        animatedValue.setValue(progressDelta);
       },
       onPanResponderRelease: (_, gestureState) => {
         animatedValue.flattenOffset();
-        
-        if (gestureState.dy < -DRAG_THRESHOLD) {
-            Animated.spring(animatedValue, {
-                toValue: 1,
-                useNativeDriver: false, 
-            }).start();
-            lastGestureDy.current = 1;
-        } else if (gestureState.dy > DRAG_THRESHOLD) {
-            Animated.spring(animatedValue, {
-                toValue: 0,
-                useNativeDriver: false,
-            }).start();
-            lastGestureDy.current = 0;
+        const progress = currentValue.current;
+        let toValue = 0; 
+
+        if ((lastPosition.current === 0 && progress > 0.2) || (gestureState.vy < -0.5)) {
+            toValue = 1; 
+        } else if ((lastPosition.current === 1 && progress < 0.8) || (gestureState.vy > 0.5)) {
+            toValue = 0; 
         } else {
-            Animated.spring(animatedValue, {
-                toValue: lastGestureDy.current,
-                useNativeDriver: false,
-            }).start();
+            toValue = lastPosition.current; 
         }
+
+        Animated.spring(animatedValue, {
+            toValue,
+            friction: 6,
+            tension: 50,
+            useNativeDriver: false,
+        }).start();
+
+        lastPosition.current = toValue;
       },
     })
   ).current;
@@ -78,6 +147,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
     height: animatedValue.interpolate({
         inputRange: [0, 1],
         outputRange: [SHEET_MIN_HEIGHT + insets.bottom, SHEET_MAX_HEIGHT],
+        extrapolate: 'clamp',
     }),
   };
 
@@ -108,13 +178,20 @@ export default function LiveMapScreen({ route, navigation }: any) {
                     var vehicles = data.vehicles;
                     var targetId = data.targetId;
 
+                    Object.keys(markers).forEach(function(id) {
+                         if (!vehicles.find(v => v.id === id)) {
+                             map.removeLayer(markers[id]);
+                             delete markers[id];
+                         }
+                    });
+
                     vehicles.forEach(function(v) {
                         if (markers[v.id]) {
                             markers[v.id].setLatLng([v.latitude, v.longitude]);
                         } else {
-                            var color = (v.id === targetId) ? 'blue' : 'red';
+                            var color = 'blue';
                             var marker = L.circleMarker([v.latitude, v.longitude], {
-                                radius: 10, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.8
+                                radius: 12, fillColor: color, color: '#fff', weight: 3, opacity: 1, fillOpacity: 0.8
                             }).addTo(map);
                             markers[v.id] = marker;
                         }
@@ -133,10 +210,10 @@ export default function LiveMapScreen({ route, navigation }: any) {
 
   useEffect(() => {
     if (webViewRef.current) {
-        const data = JSON.stringify({ vehicles: allVehicles, targetId: vehicleId });
+        const data = JSON.stringify({ vehicles: displayedVehicles, targetId: vehicleId });
         webViewRef.current.postMessage(data);
     }
-  }, [allVehicles, vehicleId]);
+  }, [displayedVehicles, vehicleId]);
 
   return (
     <View style={styles.container}>
@@ -149,7 +226,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
         style={styles.map}
         onLoadEnd={() => {
             if (webViewRef.current) {
-                const data = JSON.stringify({ vehicles: allVehicles, targetId: vehicleId });
+                const data = JSON.stringify({ vehicles: displayedVehicles, targetId: vehicleId });
                 webViewRef.current.postMessage(data);
             }
         }}
@@ -171,9 +248,11 @@ export default function LiveMapScreen({ route, navigation }: any) {
             {targetVehicle ? (
                 <>
                     <View style={styles.sheetHeader}>
-                        <View>
-                            <Text style={styles.vehicleTitle}>Vehicle {targetVehicle.id}</Text>
-                            <Text style={styles.statusText}>● Online & Transmitting</Text>
+                        <View style={styles.textContainer}>
+                            <Text style={styles.vehicleTitle}>{targetVehicle.id}</Text>
+                            <Text style={styles.addressText} numberOfLines={2}>
+                                {isFetchingAddress ? 'Updating location...' : address}
+                            </Text>
                         </View>
                         <View style={styles.speedBadge}>
                             <Text style={styles.speedValue}>{targetVehicle.speed || 0}</Text>
@@ -198,21 +277,22 @@ export default function LiveMapScreen({ route, navigation }: any) {
                                 {new Date(targetVehicle.timestamp).toLocaleTimeString()}
                             </Text>
                         </View>
+                        <View style={styles.detailItem}>
+                            <Text style={styles.detailLabel}>STATUS</Text>
+                            <Text style={styles.statusValue}>Online</Text>
+                        </View>
                     </View>
                 </>
             ) : (
                 <View style={styles.centerContent}>
-                    <Text style={styles.placeholderText}>Select a vehicle to view details</Text>
+                    <Text style={styles.placeholderText}>Vehicle not found</Text>
+                    {displayedVehicles.length === 0 && (
+                         <ActivityIndicator size="small" color={COLORS.primary} style={styles.spinner} />
+                    )}
                 </View>
             )}
         </View>
       </Animated.View>
-
-      {allVehicles.length === 0 && (
-        <View style={styles.loading}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
-      )}
     </View>
   );
 }
@@ -221,93 +301,54 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'white' },
   map: { flex: 1 },
   
-  // Back Button
   backButton: {
-    position: 'absolute',
-    left: 20,
-    width: 40,
-    height: 40,
-    backgroundColor: 'white',
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOWS.medium,
-    zIndex: 10,
+    position: 'absolute', left: 20, width: 40, height: 40,
+    backgroundColor: 'white', borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    ...SHADOWS.medium, zIndex: 10,
   },
   backButtonText: { fontSize: 24, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: -2 },
 
-  // Bottom Sheet
   bottomSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'white',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    ...SHADOWS.medium,
-    elevation: 20, 
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: 'white', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    ...SHADOWS.medium, elevation: 20, overflow: 'hidden',
   },
   dragHandleArea: {
-    height: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
+    height: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: 'white',
   },
   dragHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: '#E0E0E0',
-    borderRadius: 3,
+    width: 40, height: 5, backgroundColor: '#E0E0E0', borderRadius: 3,
   },
   sheetContent: {
-    flex: 1,
-    paddingHorizontal: 24,
+    flex: 1, paddingHorizontal: 24, paddingBottom: 20,
   },
 
   sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10,
+  },
+  textContainer: {
+    flex: 1, paddingRight: 10,
   },
   vehicleTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.textPrimary },
-  statusText: { fontSize: 14, color: COLORS.success, marginTop: 4, fontWeight: '600' },
+  addressText: { fontSize: 13, color: COLORS.textSecondary, marginTop: 4, lineHeight: 18 },
   
   speedBadge: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.primaryLight,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.primaryLight, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 12,
   },
   speedValue: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary },
   speedUnit: { fontSize: 10, color: COLORS.primary, fontWeight: 'bold' },
 
   divider: { height: 1, backgroundColor: '#F0F0F0', marginVertical: 15 },
 
-  detailsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  detailItem: {
-    width: '48%',
-    backgroundColor: '#F9FAFB',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 10,
-  },
+  detailsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  detailItem: { width: '48%', backgroundColor: '#F9FAFB', padding: 12, borderRadius: 12, marginBottom: 10 },
   detailLabel: { fontSize: 10, color: '#9CA3AF', fontWeight: 'bold', marginBottom: 4 },
   detailValue: { fontSize: 14, color: COLORS.textPrimary, fontWeight: '600' },
+  statusValue: { fontSize: 14, color: COLORS.success, fontWeight: '600' },
 
   centerContent: { alignItems: 'center', marginTop: 20 },
   placeholderText: { color: COLORS.textSecondary },
-
-  loading: {
-    position: 'absolute', top: 50, alignSelf: 'center',
-    backgroundColor: 'white', padding: 10, borderRadius: 20,
-    ...SHADOWS.small
-  }
+  spinner: { marginTop: 10 },
 });
