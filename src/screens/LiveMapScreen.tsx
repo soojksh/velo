@@ -189,14 +189,12 @@ export default function LiveMapScreen({ route, navigation }: any) {
       extrapolate: 'clamp'
   });
 
-  // 3. Opacity for Full Text (Fade In)
   const expandedOpacity = animatedValue.interpolate({
       inputRange: [0.1, 0.4],
       outputRange: [0, 1],
       extrapolate: 'clamp'
   });
 
-  // --- MAPLIBRE HTML (With Instant Centering Fix) ---
   const mapLibreHtml = `
     <!DOCTYPE html>
     <html>
@@ -473,9 +471,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
                                 </View>
                             </View>
                             
-                            {/* --- ADDRESS CROSS-FADE ANIMATION --- */}
                             <Animated.View style={[styles.addressRow, { height: addressContainerHeight }]}>
-                                {/* 1. Collapsed View (Single Line) - No Icon */}
                                 <Animated.Text 
                                     style={[styles.addressText, styles.absoluteText, { opacity: collapsedOpacity }]} 
                                     numberOfLines={1}
@@ -483,7 +479,6 @@ export default function LiveMapScreen({ route, navigation }: any) {
                                     {address}
                                 </Animated.Text>
 
-                                {/* 2. Expanded View (Full Text) */}
                                 <Animated.Text 
                                     style={[styles.addressText, styles.absoluteText, { opacity: expandedOpacity }]} 
                                 >
