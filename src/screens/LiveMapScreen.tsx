@@ -3,13 +3,12 @@ import {
   StyleSheet,
   View,
   Text,
-  TouchableOpacity,
   Animated,
   PanResponder,
   Dimensions,
   StatusBar,
   ActivityIndicator,
-  BackHandler, // <--- 1. Import BackHandler
+  BackHandler, 
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,7 +16,7 @@ import { useVehicles } from '../context/VehicleContext';
 import { COLORS, SHADOWS } from '../config/theme';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-const SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.55; 
+const SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.35; 
 const SHEET_MIN_HEIGHT = 120;
 const SHEET_RANGE = SHEET_MAX_HEIGHT - SHEET_MIN_HEIGHT;
 
@@ -31,10 +30,8 @@ export default function LiveMapScreen({ route, navigation }: any) {
   const currentValue = useRef(0);
   const lastPosition = useRef(0);
 
-  // Address State
   const [address, setAddress] = useState<string>('Locating address...');
   
-  // Refs for throttling
   const lastFetchCoords = useRef<{lat: number, lng: number} | null>(null);
   const lastFetchTime = useRef<number>(0);
 
@@ -43,7 +40,6 @@ export default function LiveMapScreen({ route, navigation }: any) {
     return targetVehicle ? [targetVehicle] : [];
   }, [targetVehicle]);
 
-  // Remove Default Header
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
@@ -51,26 +47,22 @@ export default function LiveMapScreen({ route, navigation }: any) {
   // --- 2. SYSTEM BACK BUTTON HANDLER ---
   useEffect(() => {
     const onBackPress = () => {
-      // Logic: If user presses system back, go back to previous screen (Vehicle List)
       if (navigation.canGoBack()) {
         navigation.goBack();
-        return true; // Tell system "We handled this event, don't close the app"
+        return true; 
       }
-      return false; // Let system handle it (e.g. exit app if no screens left)
+      return false; 
     };
 
-    // Add Listener
     const subscription = BackHandler.addEventListener(
       'hardwareBackPress',
       onBackPress
     );
 
-    // Cleanup on unmount
     return () => subscription.remove();
   }, [navigation]);
 
 
-  // --- ADDRESS FETCHING LOGIC ---
   useEffect(() => {
     if (!targetVehicle) return;
 
@@ -278,7 +270,6 @@ export default function LiveMapScreen({ route, navigation }: any) {
                         <View style={styles.textContainer}>
                             <Text style={styles.vehicleTitle}>{targetVehicle.id}</Text>
                             <View style={styles.addressRow}>
-                                <Text style={styles.pinIcon}>📍</Text>
                                 <Text style={styles.addressText} numberOfLines={2}>
                                     {address}
                                 </Text>
