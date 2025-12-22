@@ -10,17 +10,31 @@ import {
   StatusBar,
   ActivityIndicator,
   BackHandler,
+  Platform,
+  PermissionsAndroid,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Geolocation from 'react-native-geolocation-service'; // Ensure this is installed
 import { useVehicles } from '../context/VehicleContext';
 import { COLORS, SHADOWS } from '../config/theme';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-// Dimensions for Sheet and Button positioning
-const SHEET_MIN_HEIGHT = 140; 
+const SHEET_MIN_HEIGHT = 160; // Increased slightly for extra stats
 const SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.55; 
 const SHEET_RANGE = SHEET_MAX_HEIGHT - SHEET_MIN_HEIGHT;
+
+// --- HELPER: HAVERSINE DISTANCE (KM) ---
+const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371; // Radius of earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; 
+};
 
 export default function LiveMapScreen({ route, navigation }: any) {
   const { vehicleId } = route.params || {};
@@ -29,14 +43,29 @@ export default function LiveMapScreen({ route, navigation }: any) {
   
   const webViewRef = useRef<WebView>(null);
   
-  // Shared Animation Value for Sheet AND Button
+  // Animation Values
   const animatedValue = useRef(new Animated.Value(0)).current; 
   const currentValue = useRef(0);
   const lastPosition = useRef(0);
 
+  // Toast
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const [toastMessage, setToastMessage] = useState('');
+
+  // Data State
   const [address, setAddress] = useState<string>('Locating address...');
+  
+  // -- NEW FEATURES STATE --
+  const [userLocation, setUserLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [distanceToUser, setDistanceToUser] = useState<string | null>(null);
+  const [tripDistance, setTripDistance] = useState<number>(0);
+  const [idleTime, setIdleTime] = useState<string | null>(null);
+
+  // -- REFS FOR CALCULATIONS --
   const lastFetchCoords = useRef<{lat: number, lng: number} | null>(null);
   const lastFetchTime = useRef<number>(0);
+  const lastMoveTime = useRef<number>(Date.now());
+  const prevOdometerCoords = useRef<{lat: number, lng: number} | null>(null);
 
   const targetVehicle = vehicleId ? vehicles[vehicleId] : null;
   const displayedVehicles = useMemo(() => {
@@ -60,7 +89,15 @@ export default function LiveMapScreen({ route, navigation }: any) {
     return () => subscription.remove();
   }, [navigation]);
 
-  // Manual Re-Center Function
+  // Toast Helper
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    setTimeout(() => {
+      Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+    }, 2000);
+  };
+
   const handleRecenter = () => {
     if (webViewRef.current && targetVehicle) {
         webViewRef.current.postMessage(JSON.stringify({ 
@@ -70,7 +107,82 @@ export default function LiveMapScreen({ route, navigation }: any) {
     }
   };
 
-  // Address Fetching
+  // --- 1. USER GEOLOCATION PERMISSION & WATCHER ---
+  useEffect(() => {
+    const requestPermission = async () => {
+        if (Platform.OS === 'android') {
+            const granted = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+            );
+            if (granted !== PermissionsAndroid.RESULTS.GRANTED) return;
+        }
+        
+        // Start Watching Position
+        const watchId = Geolocation.watchPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                setUserLocation({ lat: latitude, lng: longitude });
+                
+                // Send User Location to WebView for Radar Line
+                if (webViewRef.current) {
+                    webViewRef.current.postMessage(JSON.stringify({
+                        type: 'USER_LOCATION',
+                        payload: { lat: latitude, lng: longitude }
+                    }));
+                }
+            },
+            (error) => console.log(error),
+            { enableHighAccuracy: true, distanceFilter: 10, interval: 5000 }
+        );
+
+        return () => Geolocation.clearWatch(watchId);
+    };
+
+    requestPermission();
+  }, []);
+
+  // --- 2. CALCULATIONS (TRIP, IDLE, PROXIMITY) ---
+  useEffect(() => {
+    if (!targetVehicle) return;
+
+    const lat = targetVehicle.latitude;
+    const lng = targetVehicle.longitude;
+    const speed = targetVehicle.speed || 0;
+
+    // A. TRIP ODOMETER
+    if (prevOdometerCoords.current) {
+        const dist = getDistance(prevOdometerCoords.current.lat, prevOdometerCoords.current.lng, lat, lng);
+        // Only add if reasonable movement (ignore GPS drift)
+        if (dist > 0.005) { // moved > 5 meters
+            setTripDistance(prev => prev + dist);
+            prevOdometerCoords.current = { lat, lng };
+        }
+    } else {
+        prevOdometerCoords.current = { lat, lng };
+    }
+
+    // B. IDLE DETECTION
+    if (speed > 0) {
+        lastMoveTime.current = Date.now();
+        setIdleTime(null);
+    } else {
+        const diff = Date.now() - lastMoveTime.current;
+        if (diff > 60 * 1000) { // If stopped > 1 minute (for testing)
+            const mins = Math.floor(diff / 60000);
+            setIdleTime(`${mins}m`);
+        }
+    }
+
+    // C. PROXIMITY RADAR
+    if (userLocation) {
+        const distToUser = getDistance(userLocation.lat, userLocation.lng, lat, lng);
+        setDistanceToUser(distToUser < 1 ? `${(distToUser * 1000).toFixed(0)} m` : `${distToUser.toFixed(1)} km`);
+    }
+
+  }, [targetVehicle, userLocation]);
+
+
+  // --- 3. ADDRESS FETCHING ---
   useEffect(() => {
     if (!targetVehicle) return;
     const lat = targetVehicle.latitude;
@@ -109,7 +221,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
     return () => { isMounted = false; };
   }, [targetVehicle]); 
 
-  // Animation Listener
+  // Sheet Animation Listener
   useEffect(() => {
     const id = animatedValue.addListener(({ value }) => {
       currentValue.current = value;
@@ -148,7 +260,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
     })
   ).current;
 
-  // 1. Interpolate Sheet Height
+  // Animation Interpolations
   const bottomSheetStyle = {
     height: animatedValue.interpolate({
         inputRange: [0, 1],
@@ -157,7 +269,6 @@ export default function LiveMapScreen({ route, navigation }: any) {
     }),
   };
 
-  // 2. Interpolate Button Position (Rides on top of the sheet)
   const buttonStyle = {
     bottom: animatedValue.interpolate({
         inputRange: [0, 1],
@@ -166,7 +277,25 @@ export default function LiveMapScreen({ route, navigation }: any) {
     }),
   };
 
-  // --- EXPERT MAP LOGIC (NO JITTER, CORRECT PATH) ---
+  const addressContainerHeight = animatedValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: [20, 70], 
+      extrapolate: 'clamp'
+  });
+
+  const collapsedOpacity = animatedValue.interpolate({
+      inputRange: [0, 0.2],
+      outputRange: [1, 0],
+      extrapolate: 'clamp'
+  });
+
+  const expandedOpacity = animatedValue.interpolate({
+      inputRange: [0.1, 0.4],
+      outputRange: [0, 1],
+      extrapolate: 'clamp'
+  });
+
+  // --- EXPERT MAPLIBRE HTML (Radar + User Dot + Features) ---
   const mapLibreHtml = `
     <!DOCTYPE html>
     <html>
@@ -177,27 +306,27 @@ export default function LiveMapScreen({ route, navigation }: any) {
         <style> 
             body { margin: 0; padding: 0; } 
             #map { width: 100%; height: 100vh; } 
-            
-            /* -- FIXED MARKER STYLING -- */
             .vehicle-marker {
-                width: 44px;
-                height: 44px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
+                width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
                 transform-origin: center center;
-                /* IMPORTANT: Removed transition/animation properties here to prevent JS conflict */
             }
-            /* SVG inside the marker */
-            .vehicle-marker svg {
-                filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3));
+            .vehicle-marker svg { filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3)); }
+            
+            /* USER MARKER (Blue Dot) */
+            .user-marker {
+                width: 16px; height: 16px; background-color: #3b82f6; border: 3px solid white; 
+                border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             }
+            .user-marker::after {
+                content: ''; position: absolute; top: -6px; left: -6px; width: 28px; height: 28px;
+                background: rgba(59, 130, 246, 0.3); border-radius: 50%; animation: pulse-blue 2s infinite;
+            }
+            @keyframes pulse-blue { 0% { transform: scale(0.8); opacity: 0.8; } 100% { transform: scale(1.5); opacity: 0; } }
         </style>
     </head>
     <body>
         <div id="map"></div>
         <script>
-            // TRUCK SVG
             const TRUCK_SVG = \`
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="12" cy="12" r="11" fill="white" stroke="#059df5" stroke-width="2"/>
@@ -214,42 +343,59 @@ export default function LiveMapScreen({ route, navigation }: any) {
                             'type': 'raster',
                             'tiles': ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png'],
                             'tileSize': 256,
-                            'attribution': '&copy; OpenStreetMap'
+                            'attribution': '&copy; OpenStreetMap',
+                            'maxzoom': 19 
                         }
                     },
                     'layers': [
-                        { 'id': 'osm-raster-layer', 'type': 'raster', 'source': 'osm-raster-tiles', 'minzoom': 0, 'maxzoom': 19 }
+                        { 'id': 'osm-raster-layer', 'type': 'raster', 'source': 'osm-raster-tiles', 'minzoom': 0, 'maxzoom': 22 }
                     ]
                 },
                 center: [85.3240, 27.7172],
-                zoom: 15, 
-                pitch: 0, // Flat view reduces jitter perception
+                zoom: 15,
+                maxZoom: 19, 
+                pitch: 0, 
                 attributionControl: false
             });
 
             var markers = {};
+            var userMarker = null;
             var pathHistory = []; 
             var traceSourceId = 'vehicle-trace';
+            var radarSourceId = 'radar-line';
             var animState = {}; 
             const ANIMATION_DURATION = 15000;
+            var isFirstLoad = true;
+            
+            // State for Radar
+            var lastUserPos = null;
+            var lastVehiclePos = null;
 
-            // --- BEARING CALCULATION ---
+            var lastToastTime = 0;
+            map.on('zoomend', function() {
+                if (map.getZoom() >= 19) {
+                    var now = Date.now();
+                    if (now - lastToastTime > 3000) {
+                        lastToastTime = now;
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ZOOM_LIMIT_REACHED' }));
+                    }
+                }
+            });
+
             function getBearing(startLat, startLng, destLat, destLng) {
                 var startLatRad = startLat * (Math.PI / 180);
                 var startLngRad = startLng * (Math.PI / 180);
                 var destLatRad = destLat * (Math.PI / 180);
                 var destLngRad = destLng * (Math.PI / 180);
-
                 var y = Math.sin(destLngRad - startLngRad) * Math.cos(destLatRad);
                 var x = Math.cos(startLatRad) * Math.sin(destLatRad) -
                         Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
-                
                 var brng = Math.atan2(y, x);
-                brng = brng * (180 / Math.PI);
-                return (brng + 360) % 360;
+                return ((brng * 180 / Math.PI) + 360) % 360;
             }
 
             map.on('load', function() {
+                // 1. Vehicle Trace Line
                 map.addSource(traceSourceId, {
                     'type': 'geojson',
                     'data': { 'type': 'Feature', 'properties': {}, 'geometry': { 'type': 'LineString', 'coordinates': [] } }
@@ -259,10 +405,24 @@ export default function LiveMapScreen({ route, navigation }: any) {
                     'type': 'line',
                     'source': traceSourceId,
                     'layout': { 'line-join': 'round', 'line-cap': 'round' },
+                    'paint': { 'line-color': '#059df5', 'line-width': 6, 'line-opacity': 0.7 }
+                });
+
+                // 2. Radar Line (Dashed)
+                map.addSource(radarSourceId, {
+                    'type': 'geojson',
+                    'data': { 'type': 'Feature', 'properties': {}, 'geometry': { 'type': 'LineString', 'coordinates': [] } }
+                });
+                map.addLayer({
+                    'id': 'radar-layer',
+                    'type': 'line',
+                    'source': radarSourceId,
+                    'layout': { 'line-join': 'round', 'line-cap': 'round' },
                     'paint': { 
-                        'line-color': '#059df5', 
-                        'line-width': 6, 
-                        'line-opacity': 0.7 
+                        'line-color': '#6b7280', 
+                        'line-width': 2, 
+                        'line-opacity': 0.6,
+                        'line-dasharray': [2, 4] // Dashed Pattern
                     }
                 });
             });
@@ -270,11 +430,43 @@ export default function LiveMapScreen({ route, navigation }: any) {
             document.addEventListener('message', function(event) { handleMessage(event.data); });
             window.addEventListener('message', function(event) { handleMessage(event.data); });
 
+            // Helper to update Radar Line
+            function updateRadarLine() {
+                if (lastUserPos && lastVehiclePos && map.getSource(radarSourceId)) {
+                    map.getSource(radarSourceId).setData({
+                        'type': 'Feature',
+                        'properties': {},
+                        'geometry': {
+                            'type': 'LineString',
+                            'coordinates': [lastUserPos, lastVehiclePos]
+                        }
+                    });
+                }
+            }
+
             function handleMessage(payload) {
                 try {
                     var msg = JSON.parse(payload);
                     
-                    // --- RECENTER EVENT ---
+                    // --- HANDLE USER LOCATION ---
+                    if (msg.type === 'USER_LOCATION') {
+                        var userLngLat = [msg.payload.lng, msg.payload.lat];
+                        lastUserPos = userLngLat;
+
+                        if (userMarker) {
+                            userMarker.setLngLat(userLngLat);
+                        } else {
+                            var el = document.createElement('div');
+                            el.className = 'user-marker';
+                            userMarker = new maplibregl.Marker({ element: el })
+                                .setLngLat(userLngLat)
+                                .addTo(map);
+                        }
+                        updateRadarLine();
+                        return;
+                    }
+
+                    // --- HANDLE RECENTER ---
                     if (msg.type === 'RECENTER') {
                         map.flyTo({
                             center: [msg.payload.lng, msg.payload.lat],
@@ -289,7 +481,6 @@ export default function LiveMapScreen({ route, navigation }: any) {
                     var vehicles = msg.vehicles;
                     var targetId = msg.targetId;
                     
-                    // Cleanup
                     Object.keys(markers).forEach(function(id) {
                          if (!vehicles.find(v => v.id === id)) {
                              markers[id].remove();
@@ -300,45 +491,46 @@ export default function LiveMapScreen({ route, navigation }: any) {
 
                     vehicles.forEach(function(v) {
                         var targetLngLat = [v.longitude, v.latitude];
+                        // Update Radar Tracking Pos
+                        if (v.id === targetId) {
+                            lastVehiclePos = targetLngLat;
+                            updateRadarLine();
+                        }
 
                         if (markers[v.id]) {
-                            // Animate existing
                             var currentLngLat = markers[v.id].getLngLat();
                             var startLngLat = [currentLngLat.lng, currentLngLat.lat];
-
                             if (startLngLat[0] !== targetLngLat[0] || startLngLat[1] !== targetLngLat[1]) {
                                 var bearing = getBearing(startLngLat[1], startLngLat[0], targetLngLat[1], targetLngLat[0]);
                                 animateMarker(v.id, startLngLat, targetLngLat, bearing);
                             }
                         } else {
-                            // Create new
                             var el = document.createElement('div');
                             el.className = 'vehicle-marker';
                             el.innerHTML = TRUCK_SVG;
-                            
                             var marker = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
-                                .setLngLat(targetLngLat)
-                                .addTo(map);
+                                .setLngLat(targetLngLat).addTo(map);
                             markers[v.id] = marker;
 
-                            // Initialize path history with START point
                             if (v.id === targetId && pathHistory.length === 0) {
                                 pathHistory.push(targetLngLat);
                             }
                         }
                     });
 
-                    // REMOVED AUTO-FOLLOW HERE to fix re-center issue
-                } catch (e) { }
+                    if (isFirstLoad && targetId && vehicles.find(v => v.id === targetId)) {
+                        var v = vehicles.find(v => v.id === targetId);
+                        map.jumpTo({ center: [v.longitude, v.latitude], zoom: 15 });
+                        isFirstLoad = false;
+                    }
+
+                } catch { } 
             }
 
             function animateMarker(id, start, end, bearing) {
                 var startTime = performance.now();
-                
-                // Set rotation immediately to face new point
                 if (markers[id]) markers[id].setRotation(bearing);
 
-                // Push START point to history if it's new (prevents erasing)
                 var lastHist = pathHistory[pathHistory.length-1];
                 if (!lastHist || (lastHist[0] !== start[0] || lastHist[1] !== start[1])) {
                     pathHistory.push(start);
@@ -347,30 +539,29 @@ export default function LiveMapScreen({ route, navigation }: any) {
                 function loop(now) {
                     var elapsed = now - startTime;
                     var progress = Math.min(elapsed / ANIMATION_DURATION, 1);
-
                     var lng = start[0] + (end[0] - start[0]) * progress;
                     var lat = start[1] + (end[1] - start[1]) * progress;
                     var currentPos = [lng, lat];
 
-                    // 1. Move Marker
                     if (markers[id]) markers[id].setLngLat(currentPos);
 
-                    // 2. Draw Trace: History + Current Tip
+                    // Update BOTH traces dynamically
                     if (map.getSource(traceSourceId)) {
-                        // We construct a new array for visualization: History + [CurrentMovingPoint]
                         var livePath = [...pathHistory, currentPos];
-                        
                         map.getSource(traceSourceId).setData({
-                            'type': 'Feature', 
-                            'properties': {}, 
-                            'geometry': { 'type': 'LineString', 'coordinates': livePath }
+                            'type': 'Feature', 'properties': {}, 'geometry': { 'type': 'LineString', 'coordinates': livePath }
+                        });
+                    }
+                    // Animate Radar Line as well
+                    if (map.getSource(radarSourceId) && lastUserPos) {
+                        map.getSource(radarSourceId).setData({
+                            'type': 'Feature', 'properties': {}, 'geometry': { 'type': 'LineString', 'coordinates': [lastUserPos, currentPos] }
                         });
                     }
 
                     if (progress < 1) {
                         animState[id] = { requestID: requestAnimationFrame(loop) };
                     } else {
-                        // Animation Complete: Commit the END point to history
                         pathHistory.push(end);
                         if (markers[id]) markers[id].setLngLat(end);
                     }
@@ -383,6 +574,15 @@ export default function LiveMapScreen({ route, navigation }: any) {
     </body>
     </html>
   `;
+
+  const onWebViewMessage = (event: any) => {
+      try {
+          const data = JSON.parse(event.nativeEvent.data);
+          if (data.type === 'ZOOM_LIMIT_REACHED') {
+              showToast("Maximum zoom level reached");
+          }
+      } catch { }
+  };
 
   useEffect(() => {
     if (webViewRef.current) {
@@ -400,6 +600,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
         originWhitelist={['*']}
         source={{ html: mapLibreHtml }}
         style={styles.map}
+        onMessage={onWebViewMessage} 
         onLoadEnd={() => {
             if (webViewRef.current) {
                 const data = JSON.stringify({ vehicles: displayedVehicles, targetId: vehicleId });
@@ -408,15 +609,10 @@ export default function LiveMapScreen({ route, navigation }: any) {
         }}
       />
 
-      {/* Floating Back Button */}
-      <TouchableOpacity 
-        style={[styles.fab, styles.backFab, { top: insets.top + 10 }]} 
-        onPress={() => navigation.goBack()}
-      >
-        <Text style={styles.fabIcon}>←</Text>
-      </TouchableOpacity>
+      <Animated.View style={[styles.toastContainer, { opacity: toastOpacity, top: insets.top + 70 }]}>
+          <Text style={styles.toastText}>{toastMessage}</Text>
+      </Animated.View>
 
-      {/* RECENTER BUTTON: Animated to ride the sheet */}
       <Animated.View style={[styles.fabWrapper, buttonStyle]}>
           <TouchableOpacity 
             style={[styles.fab, styles.recenterFab]} 
@@ -427,7 +623,6 @@ export default function LiveMapScreen({ route, navigation }: any) {
           </TouchableOpacity>
       </Animated.View>
 
-      {/* Bottom Sheet */}
       <Animated.View style={[styles.bottomSheet, bottomSheetStyle]}>
         <View {...panResponder.panHandlers} style={styles.dragHandleArea}>
             <View style={styles.dragHandle} />
@@ -440,18 +635,32 @@ export default function LiveMapScreen({ route, navigation }: any) {
                         <View style={styles.textContainer}>
                             <View style={styles.titleRow}>
                                 <Text style={styles.vehicleTitle}>{targetVehicle.id}</Text>
-                                <View style={styles.liveTag}>
-                                    <View style={styles.liveDot} />
-                                    <Text style={styles.liveText}>LIVE</Text>
+                                {/* SMART STATUS BADGE */}
+                                <View style={[styles.liveTag, idleTime ? styles.idleTag : null]}>
+                                    <View style={[styles.liveDot, idleTime ? styles.idleDot : null]} />
+                                    <Text style={[styles.liveText, idleTime ? styles.idleText : null]}>
+                                        {idleTime ? `IDLE (${idleTime})` : 'LIVE'}
+                                    </Text>
                                 </View>
                             </View>
                             
-                            <View style={styles.addressRow}>
-                                <Text style={styles.pinIcon}>📍</Text>
-                                <Text style={styles.addressText} numberOfLines={1}>
+                            <Animated.View style={[styles.addressRow, { height: addressContainerHeight }]}>
+                                <Animated.Text 
+                                    style={[styles.addressText, styles.absoluteText, { opacity: collapsedOpacity }]} 
+                                    numberOfLines={1}
+                                >
+                                    {address} 
+                                    {distanceToUser ? ` • ${distanceToUser} away` : ''} {/* Added Proximity Info */}
+                                </Animated.Text>
+
+                                <Animated.Text 
+                                    style={[styles.addressText, styles.absoluteText, { opacity: expandedOpacity }]} 
+                                >
                                     {address}
-                                </Text>
-                            </View>
+                                    {'\n'}
+                                    {distanceToUser ? `Distance: ${distanceToUser} from location` : ''}
+                                </Animated.Text>
+                            </Animated.View>
                         </View>
                         
                         <View style={styles.speedBadge}>
@@ -468,9 +677,10 @@ export default function LiveMapScreen({ route, navigation }: any) {
                             <Text style={styles.statLabel}>LATITUDE</Text>
                             <Text style={styles.statValue}>{targetVehicle.latitude.toFixed(5)}</Text>
                         </View>
+                        {/* REPLACED LONGITUDE WITH TRIP METER */}
                         <View style={[styles.statItem, styles.statBorder]}>
-                            <Text style={styles.statLabel}>LONGITUDE</Text>
-                            <Text style={styles.statValue}>{targetVehicle.longitude.toFixed(5)}</Text>
+                            <Text style={styles.statLabel}>TRIP</Text>
+                            <Text style={styles.statValue}>{tripDistance.toFixed(2)} km</Text>
                         </View>
                         <View style={styles.statItem}>
                             <Text style={styles.statLabel}>UPDATED</Text>
@@ -496,30 +706,23 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'white' },
   map: { flex: 1 },
   
-  // Wrapper for Animated Position
-  fabWrapper: {
-    position: 'absolute',
-    right: 20,
-    zIndex: 20,
+  toastContainer: {
+    position: 'absolute', alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.8)',
+    paddingVertical: 10, paddingHorizontal: 20, borderRadius: 25, zIndex: 100,
   },
+  toastText: { color: 'white', fontWeight: '600', fontSize: 14 },
+
+  fabWrapper: { position: 'absolute', right: 20, zIndex: 20 },
   fab: {
-    width: 44,
-    height: 44,
-    backgroundColor: 'white',
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOWS.medium,
-    elevation: 5,
+    width: 44, height: 44, backgroundColor: 'white', borderRadius: 22,
+    alignItems: 'center', justifyContent: 'center', ...SHADOWS.medium, elevation: 5,
   },
-  backFab: { position: 'absolute', left: 20, zIndex: 20 },
   recenterFab: { backgroundColor: COLORS.primary },
   fabIcon: { fontSize: 22, color: COLORS.textPrimary }, 
   
   bottomSheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: 'white',
-    borderTopLeftRadius: 30, borderTopRightRadius: 30,
+    backgroundColor: 'white', borderTopLeftRadius: 30, borderTopRightRadius: 30,
     ...SHADOWS.medium, elevation: 25, overflow: 'hidden',
   },
   dragHandleArea: {
@@ -528,20 +731,26 @@ const styles = StyleSheet.create({
   dragHandle: {
     width: 40, height: 5, backgroundColor: '#E0E0E0', borderRadius: 10,
   },
-  sheetContent: {
-    flex: 1, paddingHorizontal: 24, paddingBottom: 30,
-  },
+  sheetContent: { flex: 1, paddingHorizontal: 24, paddingBottom: 30 },
 
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 5 },
+  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 5 },
   textContainer: { flex: 1, paddingRight: 15 },
   titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   vehicleTitle: { fontSize: 24, fontWeight: '800', color: COLORS.textPrimary, marginRight: 8 },
+  
+  // LIVE vs IDLE Styles
   liveTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffe4e6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f43f5e', marginRight: 4 },
   liveText: { fontSize: 10, fontWeight: 'bold', color: '#f43f5e' },
-  addressRow: { flexDirection: 'row', alignItems: 'center' },
-  pinIcon: { fontSize: 14, marginRight: 4, color: COLORS.textSecondary },
-  addressText: { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500', flex: 1 },
+  
+  idleTag: { backgroundColor: '#ffedd5' }, // Orange background
+  idleDot: { backgroundColor: '#f97316' }, // Orange dot
+  idleText: { color: '#f97316' }, // Orange text
+
+  addressRow: { flexDirection: 'row', overflow: 'hidden' }, 
+  absoluteText: { position: 'absolute', left: 0, right: 0, top: 0 }, 
+  addressText: { fontSize: 14, color: COLORS.textSecondary, fontWeight: '500', lineHeight: 20 },
+  
   speedBadge: {
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#eff6ff', 
     paddingVertical: 10, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: '#dbeafe'
