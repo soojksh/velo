@@ -560,9 +560,9 @@ const styles = StyleSheet.create({
   textContainer: { flex: 1, paddingRight: 15 },
   titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   vehicleTitle: { fontSize: 24, fontWeight: '800', color: COLORS.textPrimary, marginRight: 8 },
-  liveTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffe4e6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#f43f5e', marginRight: 4 },
-  liveText: { fontSize: 10, fontWeight: 'bold', color: '#f43f5e' },
+  liveTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fbfffaff', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#00ff66ff', marginRight: 4 },
+  liveText: { fontSize: 10, fontWeight: 'bold', color: '#00ff66ff' },
   
   addressRow: { flexDirection: 'row', overflow: 'hidden' },
   absoluteText: { position: 'absolute', left: 0, right: 0, top: 0 }, 
