@@ -47,7 +47,7 @@ export const VehicleProvider = ({ children }: { children: React.ReactNode }) => 
           });
           return nextState;
         });
-      }, 15000); 
+      }, 2000); 
 
       return () => clearInterval(intervalId);
     } 

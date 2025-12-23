@@ -239,7 +239,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
                         { 'id': 'osm-raster-layer', 'type': 'raster', 'source': 'osm-raster-tiles', 'minzoom': 0, 'maxzoom': 22 }
                     ]
                 },
-                center: [85.3240, 27.7172], // Default Kathmandu
+                center: [85.3240, 27.7172], 
                 zoom: 15,
                 maxZoom: 19, 
                 pitch: 0, 
@@ -247,11 +247,15 @@ export default function LiveMapScreen({ route, navigation }: any) {
             });
 
             var markers = {};
+            var vehicleRotations = {}; // Store current bearing for smooth interpolation
             var pathHistory = []; 
             var traceSourceId = 'vehicle-trace';
             var animState = {}; 
-            const ANIMATION_DURATION = 15000;
-            var isFirstLoad = true; // <--- FLAG FOR INITIAL CENTERING
+            
+            // FIX 1: REDUCE ANIMATION DURATION
+            // 2000ms is smoother for typical 1s-3s GPS updates. 15000ms caused the "discrete" lag.
+            const ANIMATION_DURATION = 2000; 
+            var isFirstLoad = true; 
 
             // --- ZOOM LIMIT LISTENER ---
             var lastToastTime = 0;
@@ -277,6 +281,17 @@ export default function LiveMapScreen({ route, navigation }: any) {
                         Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
                 var brng = Math.atan2(y, x);
                 return ((brng * 180 / Math.PI) + 360) % 360;
+            }
+
+            // FIX 2: Helper for shortest rotation interpolation (prevent spinning 360)
+            function shortAngleDist(a0, a1) {
+                var max = 360;
+                var da = (a1 - a0) % max;
+                return 2 * da % max - da;
+            }
+
+            function lerp(start, end, t) {
+                return start * (1 - t) + end * t;
             }
 
             map.on('load', function() {
@@ -317,6 +332,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
                          if (!vehicles.find(v => v.id === id)) {
                              markers[id].remove();
                              delete markers[id];
+                             delete vehicleRotations[id];
                              if (animState[id]) cancelAnimationFrame(animState[id].requestID);
                          }
                     });
@@ -328,7 +344,14 @@ export default function LiveMapScreen({ route, navigation }: any) {
                             // Update Existing
                             var currentLngLat = markers[v.id].getLngLat();
                             var startLngLat = [currentLngLat.lng, currentLngLat.lat];
-                            if (startLngLat[0] !== targetLngLat[0] || startLngLat[1] !== targetLngLat[1]) {
+                            
+                            // FIX 3: NOISE FILTER
+                            // Only animate/rotate if distance is significant (> ~5 meters)
+                            // This stops "shivering" when stationary.
+                            var diffLat = Math.abs(startLngLat[1] - targetLngLat[1]);
+                            var diffLng = Math.abs(startLngLat[0] - targetLngLat[0]);
+
+                            if (diffLat > 0.00005 || diffLng > 0.00005) {
                                 var bearing = getBearing(startLngLat[1], startLngLat[0], targetLngLat[1], targetLngLat[0]);
                                 animateMarker(v.id, startLngLat, targetLngLat, bearing);
                             }
@@ -340,6 +363,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
                             var marker = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
                                 .setLngLat(targetLngLat).addTo(map);
                             markers[v.id] = marker;
+                            vehicleRotations[v.id] = 0; // Init rotation
 
                             if (v.id === targetId && pathHistory.length === 0) {
                                 pathHistory.push(targetLngLat);
@@ -347,10 +371,8 @@ export default function LiveMapScreen({ route, navigation }: any) {
                         }
                     });
 
-                    // --- INSTANT SNAP ON FIRST LOAD ---
                     if (isFirstLoad && targetId && vehicles.find(v => v.id === targetId)) {
                         var v = vehicles.find(v => v.id === targetId);
-                        // jumpTo is instant (no animation)
                         map.jumpTo({ 
                             center: [v.longitude, v.latitude],
                             zoom: 15
@@ -361,9 +383,14 @@ export default function LiveMapScreen({ route, navigation }: any) {
                 } catch { } 
             }
 
-            function animateMarker(id, start, end, bearing) {
+            function animateMarker(id, start, end, targetBearing) {
                 var startTime = performance.now();
-                if (markers[id]) markers[id].setRotation(bearing);
+                
+                // Get Current Rotation for smooth transition
+                var startRotation = vehicleRotations[id] || 0;
+                
+                // Calculate shortest rotation direction
+                var rotationDiff = shortAngleDist(startRotation, targetBearing);
 
                 var lastHist = pathHistory[pathHistory.length-1];
                 if (!lastHist || (lastHist[0] !== start[0] || lastHist[1] !== start[1])) {
@@ -373,11 +400,23 @@ export default function LiveMapScreen({ route, navigation }: any) {
                 function loop(now) {
                     var elapsed = now - startTime;
                     var progress = Math.min(elapsed / ANIMATION_DURATION, 1);
+                    
+                    // Linear Interpolation for Position
                     var lng = start[0] + (end[0] - start[0]) * progress;
                     var lat = start[1] + (end[1] - start[1]) * progress;
                     var currentPos = [lng, lat];
 
-                    if (markers[id]) markers[id].setLngLat(currentPos);
+                    // FIX 4: INTERPOLATE ROTATION
+                    // Smoothly turn the icon instead of snapping
+                    var currentRot = startRotation + (rotationDiff * progress);
+                    
+                    if (markers[id]) {
+                        markers[id].setLngLat(currentPos);
+                        markers[id].setRotation(currentRot);
+                    }
+                    
+                    // Update state for next frame reference
+                    vehicleRotations[id] = currentRot;
 
                     if (map.getSource(traceSourceId)) {
                         var livePath = [...pathHistory, currentPos];
@@ -390,7 +429,11 @@ export default function LiveMapScreen({ route, navigation }: any) {
                         animState[id] = { requestID: requestAnimationFrame(loop) };
                     } else {
                         pathHistory.push(end);
-                        if (markers[id]) markers[id].setLngLat(end);
+                        if (markers[id]) {
+                            markers[id].setLngLat(end);
+                            markers[id].setRotation(targetBearing);
+                            vehicleRotations[id] = targetBearing; // Finalize rotation
+                        }
                     }
                 }
 
