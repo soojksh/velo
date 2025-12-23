@@ -52,8 +52,7 @@ function App(): React.JSX.Element {
             component={LiveMapScreen} 
             options={{ 
                 title: 'Tracking', 
-                // FIX: Use 'headerBackTitle' instead of 'headerBackTitleVisible'
-                headerBackTitle: '', // This removes the text next to the back arrow on iOS
+                headerBackTitle: '', 
             }}
           />
 
