@@ -7,7 +7,7 @@ interface Props {
     lat: number;
     lng: number;
     speed?: number;
-    address?: string | null; // <--- NEW PROP
+    address?: string | null; // Keeps the address prop
     onPress: () => void;
 }
 
@@ -78,100 +78,36 @@ const styles = StyleSheet.create({
         borderColor: COLORS.border,
         ...SHADOWS.small, 
     },
-    leftSection: {
-        marginRight: 16,
-    },
+    leftSection: { marginRight: 16 },
     iconContainer: {
-        width: 48,
-        height: 48,
-        borderRadius: 12,
+        width: 48, height: 48, borderRadius: 12,
         backgroundColor: COLORS.primaryLight,
-        alignItems: 'center',
-        justifyContent: 'center',
+        alignItems: 'center', justifyContent: 'center',
     },
-    icon: {
-        fontSize: 24,
-    },
-    infoSection: {
-        flex: 1,
-        justifyContent: 'center',
-    },
-    titleRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 6,
-    },
-    idText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: COLORS.textPrimary,
-        marginRight: 8,
-    },
+    icon: { fontSize: 24 },
+    infoSection: { flex: 1, justifyContent: 'center' },
+    titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+    idText: { fontSize: 16, fontWeight: 'bold', color: COLORS.textPrimary, marginRight: 8 },
     statusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#ecfdf5',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: '#ecfdf5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
     },
-    statusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: COLORS.success,
-        marginRight: 4,
-    },
-    statusText: {
-        fontSize: 10,
-        fontWeight: 'bold',
-        color: COLORS.success,
-    },
-    metaRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        minHeight: 20, // Ensures height consistency when switching between text types
-    },
-    label: {
-        color: COLORS.textSecondary,
-        fontWeight: '500',
-    },
-    coordText: {
-        fontSize: 12,
-        color: COLORS.textPrimary,
-        fontFamily: 'monospace', 
-    },
-    divider: {
-        marginHorizontal: 6,
-        color: COLORS.border,
-    },
-    // NEW STYLE FOR ADDRESS
-    addressText: {
-        fontSize: 13,
-        color: COLORS.textSecondary,
-        fontWeight: '500',
-    },
-    speedText: {
-        fontSize: 12,
-        color: COLORS.primary,
-        marginTop: 4,
-        fontWeight: '600',
-    },
-    rightSection: {
-        marginLeft: 12,
-    },
+    statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.success, marginRight: 4 },
+    statusText: { fontSize: 10, fontWeight: 'bold', color: COLORS.success },
+    
+    metaRow: { flexDirection: 'row', alignItems: 'center', minHeight: 20 },
+    label: { color: COLORS.textSecondary, fontWeight: '500' },
+    coordText: { fontSize: 12, color: COLORS.textPrimary, fontFamily: 'monospace' },
+    divider: { marginHorizontal: 6, color: COLORS.border },
+    
+    // Address Style
+    addressText: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500' },
+    
+    speedText: { fontSize: 12, color: COLORS.primary, marginTop: 4, fontWeight: '600' },
+    rightSection: { marginLeft: 12 },
     arrowButton: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
-        backgroundColor: COLORS.background,
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: 32, height: 32, borderRadius: 16,
+        backgroundColor: COLORS.background, alignItems: 'center', justifyContent: 'center',
     },
-    arrowText: {
-        fontSize: 18,
-        color: COLORS.primary,
-        fontWeight: 'bold',
-        marginTop: -2, 
-    },
+    arrowText: { fontSize: 18, color: COLORS.primary, fontWeight: 'bold', marginTop: -2 },
 });

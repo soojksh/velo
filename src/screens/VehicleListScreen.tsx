@@ -1,69 +1,75 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { FlatList, Text, View, StyleSheet } from 'react-native';
+// --- NEW IMPORT ---
+import Geocoder from 'react-native-geocoder'; 
 import ScreenContainer from '../components/ScreenContainer';
 import VehicleListItem from '../components/VehicleListItem';
 import { useVehicles } from '../context/VehicleContext';
 import { COLORS } from '../config/theme';
 
 // --- GLOBAL MEMORY CACHE ---
-// Stores: { "vehicleID": { lat: 27.1, lng: 85.2, address: "Thamel", timestamp: 12345 } }
-// This prevents refetching when scrolling or when vehicle moves slightly.
+// Stores addresses to prevent re-fetching the same location
 const ADDRESS_CACHE: Record<string, { lat: number; lng: number; address: string; timestamp: number }> = {};
 
-// Helper to determine if we should refetch (only if moved > ~20 meters)
+// Helper: Only refetch if moved > ~20 meters
 const shouldRefetch = (id: string, newLat: number, newLng: number) => {
     const cached = ADDRESS_CACHE[id];
     if (!cached) return true;
     
     const diffLat = Math.abs(cached.lat - newLat);
     const diffLng = Math.abs(cached.lng - newLng);
-    // 0.0002 degrees is approx 20-25 meters
     return diffLat > 0.0002 || diffLng > 0.0002;
 };
 
 // --- SMART WRAPPER COMPONENT ---
-// Handles the geocoding logic for a SINGLE item to avoid re-rendering the whole list
+// Handles geocoding for a SINGLE item so the whole list doesn't re-render
 const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: any }) => {
     const [address, setAddress] = useState<string | null>(
         ADDRESS_CACHE[item.id] ? ADDRESS_CACHE[item.id].address : null
     );
     
-    // FIX: Use useRef instead of useState to track fetching status.
-    // This avoids unnecessary re-renders and fixes the useEffect dependency warning.
+    // Using useRef to track fetch status avoids unnecessary re-renders
     const isFetching = useRef(false);
 
     useEffect(() => {
-        // 1. Check if we have a valid cache
+        // 1. Check Cache first
         if (!shouldRefetch(item.id, item.latitude, item.longitude)) {
             setAddress(ADDRESS_CACHE[item.id].address);
             return;
         }
 
-        // 2. Debounce mechanism (wait 1s before fetching to avoid API spam on moving vehicles)
+        // 2. Debounce (Wait 1s of stability before asking Native OS)
         const timer = setTimeout(async () => {
             if (isFetching.current) return;
             
             try {
                 isFetching.current = true;
-                // Using OpenStreetMap Nominatim (Free, but strict rate limits. In production use Google/Mapbox)
-                const response = await fetch(
-                    `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${item.latitude}&lon=${item.longitude}&accept-language=en`,
-                    { headers: { 'User-Agent': 'VeloTrackerApp/1.0' } }
-                );
                 
-                if (response.ok) {
-                    const data = await response.json();
+                // --- NATIVE GEOCODING CALL ---
+                const res = await Geocoder.geocodePosition({
+                    lat: item.latitude,
+                    lng: item.longitude
+                });
+
+                if (res && res.length > 0) {
+                    const data = res[0];
                     
-                    // Format the address logic
-                    let formatted = '';
-                    if (data.address) {
-                        const specific = data.address.hamlet || data.address.pedestrian || data.address.road || '';
-                        const general = data.address.village || data.address.municipality || data.address.town || data.address.city || '';
-                        formatted = [specific, general].filter(Boolean).join(', ');
-                        if (formatted.length < 5) formatted = data.display_name.split(',').slice(0, 2).join(',');
+                    // Intelligent Formatting: Street -> Neighborhood -> City
+                    const parts = [
+                        data.streetName,
+                        data.subLocality,
+                        data.locality
+                    ];
+                    
+                    // Filter out empty parts and join
+                    let formatted = parts.filter(Boolean).join(', ');
+                    
+                    // Fallback to formattedAddress if the parts are too short
+                    if (formatted.length < 5 && data.formattedAddress) {
+                        formatted = data.formattedAddress;
                     }
 
-                    // Update Cache
+                    // Save to Cache
                     ADDRESS_CACHE[item.id] = {
                         lat: item.latitude,
                         lng: item.longitude,
@@ -73,9 +79,9 @@ const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: an
 
                     setAddress(formatted);
                 }
-            // FIX: Removed unused 'error' variable
-            } catch {
-                // Fail silently, keep coordinates
+            } catch (err) {
+                // If native geocoder fails (e.g., no internet), we fail silently 
+                // and the UI will just show coordinates (handled in VehicleListItem)
             } finally {
                 isFetching.current = false;
             }
@@ -90,7 +96,7 @@ const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: an
             lat={item.latitude} 
             lng={item.longitude}
             speed={item.speed}
-            address={address} // Pass the resolved address
+            address={address} 
             onPress={() => navigation.navigate('LiveMap', { vehicleId: item.id })}
         />
     );
@@ -125,7 +131,7 @@ export default function VehicleListScreen({ navigation }: any) {
             data={vehicleList}
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
-            // Use the Smart Wrapper here instead of direct component
+            // Use the Smart Wrapper here
             renderItem={({ item }) => (
                 <SmartVehicleItem item={item} navigation={navigation} />
             )}

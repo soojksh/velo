@@ -21,6 +21,7 @@
     "process": "^0.11.10",
     "react": "19.2.0",
     "react-native": "0.83.1",
+    "react-native-geocoder": "^0.5.0",
     "react-native-geolocation-service": "^5.3.1",
     "react-native-get-random-values": "^2.0.0",
     "react-native-maps": "^1.26.20",

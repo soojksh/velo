@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+// --- NEW IMPORT ---
+import Geocoder from 'react-native-geocoder';
 import { useVehicles } from '../context/VehicleContext';
 import { COLORS, SHADOWS } from '../config/theme';
 
@@ -86,40 +88,57 @@ export default function LiveMapScreen({ route, navigation }: any) {
     }
   };
 
+  // --- UPDATED GEOCODING LOGIC ---
   useEffect(() => {
     if (!targetVehicle) return;
     const lat = targetVehicle.latitude;
     const lng = targetVehicle.longitude;
     const now = Date.now();
 
+    // 1. Check Distance (Don't refetch if moved less than ~20 meters)
     if (lastFetchCoords.current) {
         const diffLat = Math.abs(lastFetchCoords.current.lat - lat);
         const diffLng = Math.abs(lastFetchCoords.current.lng - lng);
         if (diffLat < 0.0002 && diffLng < 0.0002) return; 
     }
+    
+    // 2. Check Time (Don't refetch more than once every 3 seconds)
     if (now - lastFetchTime.current < 3000) return;
 
     let isMounted = true;
+
     const fetchAddress = async () => {
         try {
             lastFetchTime.current = Date.now();
             lastFetchCoords.current = { lat, lng };
-            const response = await fetch(
-                `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=en`,
-                { headers: { 'User-Agent': 'VeloTrackerApp/1.0' } }
-            );
-            if (!response.ok) return;
-            const data = await response.json();
-            if (isMounted && data.address) {
-                const specific = data.address.hamlet || data.address.pedestrian || data.address.road || '';
-                const general = data.address.village || data.address.municipality || data.address.town || data.address.city || '';
-                const district = data.address.county || data.address.district || '';
-                let fullAddr = [specific, general, district].filter(Boolean).join(', ');
-                if (fullAddr.length < 5) fullAddr = data.display_name.split(',').slice(0, 3).join(',');
+            
+            // --- NATIVE GEOCODER CALL ---
+            const res = await Geocoder.geocodePosition({ lat, lng });
+            
+            if (isMounted && res && res.length > 0) {
+                const data = res[0];
+
+                // Intelligent Formatting: Street -> Neighborhood -> City
+                const parts = [
+                    data.streetName,
+                    data.subLocality,
+                    data.locality
+                ];
+
+                let fullAddr = parts.filter(Boolean).join(', ');
+
+                // Fallback to the pre-formatted string if we got sparse data
+                if (fullAddr.length < 5 && data.formattedAddress) {
+                    fullAddr = data.formattedAddress;
+                }
+
                 setAddress(fullAddr);
             }
-        } catch {}
+        } catch (error) {
+            // If native geocoder fails (e.g. timeout), keep old address or ignore
+        }
     };
+    
     fetchAddress();
     return () => { isMounted = false; };
   }, [targetVehicle]); 
@@ -251,7 +270,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
             var traceSourceId = 'vehicle-trace';
             var animState = {}; 
             const ANIMATION_DURATION = 15000;
-            var isFirstLoad = true; // <--- FLAG FOR INITIAL CENTERING
+            var isFirstLoad = true; 
 
             // --- ZOOM LIMIT LISTENER ---
             var lastToastTime = 0;
@@ -469,7 +488,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
                                     <View style={styles.liveDot} />
                                     <Text style={styles.liveText}>LIVE</Text>
                                 </View>
-                            </View>
+                            </View>   
                             
                             <Animated.View style={[styles.addressRow, { height: addressContainerHeight }]}>
                                 <Animated.Text 
@@ -486,7 +505,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
                                 </Animated.Text>
                             </Animated.View>
                         </View>
-                        
+                      
                         <View style={styles.speedBadge}>
                             <Text style={styles.speedLabel}>SPEED</Text>
                             <Text style={styles.speedValue}>{targetVehicle.speed || 0}</Text>
