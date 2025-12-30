@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { FlatList, Text, View, StyleSheet } from 'react-native';
-// --- NEW IMPORT ---
 import Geocoder from 'react-native-geocoder'; 
 import ScreenContainer from '../components/ScreenContainer';
 import VehicleListItem from '../components/VehicleListItem';
@@ -79,7 +78,7 @@ const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: an
 
                     setAddress(formatted);
                 }
-            } catch (err) {
+            } catch {
                 // If native geocoder fails (e.g., no internet), we fail silently 
                 // and the UI will just show coordinates (handled in VehicleListItem)
             } finally {

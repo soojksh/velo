@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-// --- NEW IMPORT ---
 import Geocoder from 'react-native-geocoder';
 import { useVehicles } from '../context/VehicleContext';
 import { COLORS, SHADOWS } from '../config/theme';
@@ -134,7 +133,8 @@ export default function LiveMapScreen({ route, navigation }: any) {
 
                 setAddress(fullAddr);
             }
-        } catch (error) {
+        // FIX: Removed unused variable 'error'
+        } catch {
             // If native geocoder fails (e.g. timeout), keep old address or ignore
         }
     };
