@@ -1,16 +1,17 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity} from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { COLORS, SHADOWS } from '../config/theme';
 
 interface Props {
     id: string;
     lat: number;
     lng: number;
-    speed?: number; // Optional speed prop
+    speed?: number;
+    address?: string | null; // <--- NEW PROP
     onPress: () => void;
 }
 
-export default function VehicleListItem({ id, lat, lng, speed, onPress }: Props) {
+export default function VehicleListItem({ id, lat, lng, speed, address, onPress }: Props) {
     return (
         <TouchableOpacity 
             style={styles.card} 
@@ -32,14 +33,23 @@ export default function VehicleListItem({ id, lat, lng, speed, onPress }: Props)
                     </View>
                 </View>
                 
+                {/* LOGIC: Show Address if available, otherwise show Lat/Lng */}
                 <View style={styles.metaRow}>
-                    <Text style={styles.coordText}>
-                        <Text style={styles.label}>Lat:</Text> {lat.toFixed(4)}
-                    </Text>
-                    <Text style={styles.divider}>|</Text>
-                    <Text style={styles.coordText}>
-                        <Text style={styles.label}>Lng:</Text> {lng.toFixed(4)}
-                    </Text>
+                    {address ? (
+                        <Text style={styles.addressText} numberOfLines={1}>
+                            📍 {address}
+                        </Text>
+                    ) : (
+                        <>
+                            <Text style={styles.coordText}>
+                                <Text style={styles.label}>Lat:</Text> {lat.toFixed(4)}
+                            </Text>
+                            <Text style={styles.divider}>|</Text>
+                            <Text style={styles.coordText}>
+                                <Text style={styles.label}>Lng:</Text> {lng.toFixed(4)}
+                            </Text>
+                        </>
+                    )}
                 </View>
                 
                 {speed !== undefined && (
@@ -120,6 +130,7 @@ const styles = StyleSheet.create({
     metaRow: {
         flexDirection: 'row',
         alignItems: 'center',
+        minHeight: 20, // Ensures height consistency when switching between text types
     },
     label: {
         color: COLORS.textSecondary,
@@ -133,6 +144,12 @@ const styles = StyleSheet.create({
     divider: {
         marginHorizontal: 6,
         color: COLORS.border,
+    },
+    // NEW STYLE FOR ADDRESS
+    addressText: {
+        fontSize: 13,
+        color: COLORS.textSecondary,
+        fontWeight: '500',
     },
     speedText: {
         fontSize: 12,
