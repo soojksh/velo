@@ -128,13 +128,13 @@ export default function VehicleListScreen({ navigation }: any) {
         <View style={styles.header}>
             <View>
                 <Text style={styles.title}>Live Vehicle</Text>
-                <Text style={styles.subtitle}>Real-time monitoring</Text>
+                {/* <Text style={styles.subtitle}>Real-time monitoring</Text> */}
             </View>
-            <View style={[styles.badge, isConnected ? styles.badgeSuccess : styles.badgeError]}>
+            {/* <View style={[styles.badge, isConnected ? styles.badgeSuccess : styles.badgeError]}>
                 <Text style={[styles.badgeText, isConnected ? styles.textSuccess : styles.textError]}>
                     {isConnected ? 'ONLINE' : 'OFFLINE'}
                 </Text>
-            </View>
+            </View> */}
         </View>
         
         {connectionError && (
@@ -154,7 +154,7 @@ export default function VehicleListScreen({ navigation }: any) {
             ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                     <Text style={styles.emptyText}>Waiting for vehicles...</Text>
-                    <Text style={styles.emptySub}>Ensure your MQTT devices are transmitting.</Text>
+                    {/* <Text style={styles.emptySub}>Ensure your MQTT devices are transmitting.</Text> */}
                 </View>
             }
         />

@@ -5,7 +5,7 @@ import { AWS_CONFIG } from '../config/aws-config';
 import { getNextDemoPositions } from '../utils/demo-data';
 
 // --- CONFIGURATION ---
-const USE_DEMO_MODE = true; 
+const USE_DEMO_MODE = false; 
 // ---------------------
 
 export interface VehicleData {

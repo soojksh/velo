@@ -7,7 +7,7 @@ interface Props {
     lat: number;
     lng: number;
     speed?: number;
-    address?: string | null; // Keeps the address prop
+    address?: string | null; 
     onPress: () => void;
 }
 
@@ -33,11 +33,11 @@ export default function VehicleListItem({ id, lat, lng, speed, address, onPress 
                     </View>
                 </View>
                 
-                {/* LOGIC: Show Address if available, otherwise show Lat/Lng */}
+                {/* Show Address if available, otherwise show Lat/Lng */}
                 <View style={styles.metaRow}>
                     {address ? (
                         <Text style={styles.addressText} numberOfLines={1}>
-                            📍 {address}
+                             {address}
                         </Text>
                     ) : (
                         <>
@@ -100,7 +100,6 @@ const styles = StyleSheet.create({
     coordText: { fontSize: 12, color: COLORS.textPrimary, fontFamily: 'monospace' },
     divider: { marginHorizontal: 6, color: COLORS.border },
     
-    // Address Style
     addressText: { fontSize: 13, color: COLORS.textSecondary, fontWeight: '500' },
     
     speedText: { fontSize: 12, color: COLORS.primary, marginTop: 4, fontWeight: '600' },
