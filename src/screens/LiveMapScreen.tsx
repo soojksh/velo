@@ -14,8 +14,9 @@ import {
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Geocoder from 'react-native-geocoder';
-import { useVehicles } from '../context/VehicleContext';
 import { COLORS, SHADOWS } from '../config/theme';
+// --- UPDATED IMPORT: Use the Zustand Store instead of Context ---
+import { useVehicleStore } from '../store/vehicleStore'; 
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const SHEET_MIN_HEIGHT = 120; 
@@ -24,7 +25,11 @@ const SHEET_RANGE = SHEET_MAX_HEIGHT - SHEET_MIN_HEIGHT;
 
 export default function LiveMapScreen({ route, navigation }: any) {
   const { vehicleId } = route.params || {};
-  const { vehicles } = useVehicles();
+  
+  // OPTIMIZATION: Only subscribe to THIS specific vehicle
+  const targetVehicle = useVehicleStore((state) => state.vehicles[vehicleId]);
+  // We no longer need the full 'vehicles' list from context
+
   const insets = useSafeAreaInsets();
   
   const webViewRef = useRef<WebView>(null);
@@ -40,7 +45,7 @@ export default function LiveMapScreen({ route, navigation }: any) {
   const lastFetchCoords = useRef<{lat: number, lng: number} | null>(null);
   const lastFetchTime = useRef<number>(0);
 
-  const targetVehicle = vehicleId ? vehicles[vehicleId] : null;
+  // We wrap targetVehicle in an array for the WebView message logic which expects a list
   const displayedVehicles = useMemo(() => {
     return targetVehicle ? [targetVehicle] : [];
   }, [targetVehicle]);
@@ -133,7 +138,6 @@ export default function LiveMapScreen({ route, navigation }: any) {
 
                 setAddress(fullAddr);
             }
-        // FIX: Removed unused variable 'error'
         } catch {
             // If native geocoder fails (e.g. timeout), keep old address or ignore
         }

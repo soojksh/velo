@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef, memo } from 'react';
-import { FlatList, Text, View, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useRef, memo, useMemo } from 'react';
+import { FlatList, View, StyleSheet, Text } from 'react-native';
 import Geocoder from 'react-native-geocoder'; 
 import ScreenContainer from '../components/ScreenContainer';
 import VehicleListItem from '../components/VehicleListItem';
-import { useVehicles } from '../context/VehicleContext';
+import { useVehicleStore } from '../store/vehicleStore'; 
 import { COLORS } from '../config/theme';
 
 // --- GLOBAL MEMORY CACHE ---
-// Stores addresses to prevent re-fetching the same location
 const ADDRESS_CACHE: Record<string, { lat: number; lng: number; address: string; timestamp: number }> = {};
 
 // Helper: Only refetch if moved > ~20 meters
@@ -21,30 +20,39 @@ const shouldRefetch = (id: string, newLat: number, newLng: number) => {
 };
 
 // --- SMART WRAPPER COMPONENT ---
-// Handles geocoding for a SINGLE item so the whole list doesn't re-render
-const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: any }) => {
+const SmartVehicleItem = memo(({ vehicleId, navigation }: { vehicleId: string, navigation: any }) => {
+    // SELECTOR: Subscribes ONLY to this specific vehicle's data
+    const item = useVehicleStore(state => state.vehicles[vehicleId]);
+
     const [address, setAddress] = useState<string | null>(
-        ADDRESS_CACHE[item.id] ? ADDRESS_CACHE[item.id].address : null
+        ADDRESS_CACHE[vehicleId] ? ADDRESS_CACHE[vehicleId].address : null
     );
     
-    // Using useRef to track fetch status avoids unnecessary re-renders
     const isFetching = useRef(false);
 
+    // Guard Clause: Render nothing if item is missing (deleted)
+    // We return null at the end, but we need to check validity for hooks logic
+    
     useEffect(() => {
+        if (!item) return;
+
         // 1. Check Cache first
+        // If we don't need to refetch, simply sync with cache if state differs
         if (!shouldRefetch(item.id, item.latitude, item.longitude)) {
-            setAddress(ADDRESS_CACHE[item.id].address);
+            const cachedAddr = ADDRESS_CACHE[item.id]?.address;
+            if (cachedAddr && address !== cachedAddr) {
+                setAddress(cachedAddr);
+            }
             return;
         }
 
-        // 2. Debounce (Wait 1s of stability before asking Native OS)
+        // 2. Debounce Network Request
         const timer = setTimeout(async () => {
             if (isFetching.current) return;
             
             try {
                 isFetching.current = true;
                 
-                // --- NATIVE GEOCODING CALL ---
                 const res = await Geocoder.geocodePosition({
                     lat: item.latitude,
                     lng: item.longitude
@@ -52,18 +60,14 @@ const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: an
 
                 if (res && res.length > 0) {
                     const data = res[0];
-                    
-                    // Intelligent Formatting: Street -> Neighborhood -> City
                     const parts = [
                         data.streetName,
                         data.subLocality,
                         data.locality
                     ];
                     
-                    // Filter out empty parts and join
                     let formatted = parts.filter(Boolean).join(', ');
                     
-                    // Fallback to formattedAddress if the parts are too short
                     if (formatted.length < 5 && data.formattedAddress) {
                         formatted = data.formattedAddress;
                     }
@@ -76,18 +80,22 @@ const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: an
                         timestamp: Date.now()
                     };
 
-                    setAddress(formatted);
+                    // Only update state if it actually changed
+                    setAddress((prev) => (prev !== formatted ? formatted : prev));
                 }
             } catch {
-                // If native geocoder fails (e.g., no internet), we fail silently 
-                // and the UI will just show coordinates (handled in VehicleListItem)
+                // Fail silently
             } finally {
                 isFetching.current = false;
             }
-        }, 1000); // 1 second debounce
+        }, 1000); 
 
         return () => clearTimeout(timer);
-    }, [item.latitude, item.longitude, item.id]);
+    // Added 'address' to dependencies to satisfy linter. 
+    // The strict check (address !== cachedAddr) prevents infinite loops.
+    }, [item, address]); 
+
+    if (!item) return null;
 
     return (
         <VehicleListItem 
@@ -102,8 +110,18 @@ const SmartVehicleItem = memo(({ item, navigation }: { item: any, navigation: an
 });
 
 export default function VehicleListScreen({ navigation }: any) {
-  const { vehicles, isConnected, connectionError } = useVehicles();
-  const vehicleList = Object.values(vehicles);
+  // OPTIMIZATION TRICK:
+  // Instead of passing a custom equality function (which caused your TS error),
+  // we select the Keys as a JSON string.
+  // 1. The selector runs. If vehicles change positions, keys are same -> string is same.
+  // 2. Zustand sees string hasn't changed -> No Re-render.
+  // 3. We parse it back to an array inside the component.
+  const vehicleIdsString = useVehicleStore((state) => JSON.stringify(Object.keys(state.vehicles)));
+  
+  const vehicleIds = useMemo(() => JSON.parse(vehicleIdsString), [vehicleIdsString]);
+  
+  const isConnected = useVehicleStore((state) => state.isConnected);
+  const connectionError = useVehicleStore((state) => state.connectionError);
 
   return (
     <ScreenContainer>
@@ -127,12 +145,11 @@ export default function VehicleListScreen({ navigation }: any) {
 
         <FlatList
             contentContainerStyle={styles.listContent}
-            data={vehicleList}
-            keyExtractor={(item) => item.id}
+            data={vehicleIds} 
+            keyExtractor={(id) => id}
             showsVerticalScrollIndicator={false}
-            // Use the Smart Wrapper here
-            renderItem={({ item }) => (
-                <SmartVehicleItem item={item} navigation={navigation} />
+            renderItem={({ item: id }) => (
+                <SmartVehicleItem vehicleId={id} navigation={navigation} />
             )}
             ListEmptyComponent={
                 <View style={styles.emptyContainer}>
